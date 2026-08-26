@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: review
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn -c gunicorn.conf.py app:app
+    plan: free
+    envVars:
+      - key: GOOGLE_API_KEY
+        sync: false
