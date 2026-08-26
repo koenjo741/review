@@ -2,219 +2,149 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Thesis Reviewer</title>
+    <title>Master-Thesis Review System</title>
     <style>
-        body { font-family: sans-serif; max-width: 1100px; margin: 20px auto; padding: 20px; line-height: 1.6; }
-        
-        /* Kombiniertes Eingabefeld für Text und Bilder (contenteditable) */
-        #inputContainer { 
-            width: 100%; 
-            min-height: 350px; 
-            max-height: 600px;
-            overflow-y: auto;
-            padding: 15px; 
-            margin-bottom: 10px; 
-            box-sizing: border-box; 
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            background-color: #fff;
-            white-space: pre-wrap;
-            word-break: break-word;
-        }
-        #inputContainer:focus {
-            outline: none;
-            border-color: #007bff;
-            box-shadow: 0 0 5px rgba(0,123,255,0.3);
-        }
-        #inputContainer img {
-            max-width: 100%;
-            height: auto;
-            display: block;
-            margin: 10px 0;
-            border: 1px solid #ddd;
-            border-radius: 4px;
-        }
-
-        .button-group { margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
-        
-        /* Basis-Styling für den Haupt-Evaluierungsbutton */
-        button { padding: 10px 20px; background-color: #007bff; color: white; border: none; cursor: pointer; transition: background-color 0.3s ease; }
-        button.secondary { background-color: #6c757d; }
-        button:hover { opacity: 0.9; }
-        
-        #results { margin-top: 30px; border-top: 2px solid #eee; padding-top: 20px; display: none; }
-        .critique { background: #f9f9f9; padding: 15px; border-left: 5px solid #007bff; margin-bottom: 10px; }
-        
-        /* 2-spaltiges Layout für den Vergleich */
-        .comparison-container {
-            display: flex;
-            gap: 20px;
-            margin-top: 10px;
-        }
-        .comparison-column {
-            flex: 1;
-            padding: 15px;
-            border: 1px solid #ccc;
-            border-radius: 4px;
-            white-space: pre-wrap;
-            box-sizing: border-box;
-        }
-        .original-col {
-            background-color: #fdfbf7;
-            border-color: #e5dfd3;
-        }
-        .revised-col {
-            background-color: #e7f3ff;
-            border-color: #b3d7ff;
-        }
-        .column-title {
-            font-weight: bold;
-            margin-bottom: 10px;
-            display: block;
-            font-size: 0.95em;
-            color: #444;
-            border-bottom: 1px solid rgba(0,0,0,0.1);
-            padding-bottom: 5px;
-        }
-
-        @media (max-width: 768px) {
-            .comparison-container {
-                flex-direction: column;
-            }
-        }
+        body { font-family: Arial, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; color: #333; }
+        .container { max-width: 900px; margin: auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        h1 { color: #003366; font-size: 24px; border-bottom: 2px solid #003366; padding-bottom: 10px; }
+        .section { background: #fafbfc; border: 1px solid #e1e4e8; padding: 20px; border-radius: 6px; margin-bottom: 20px; }
+        label { font-weight: bold; display: block; margin-top: 10px; color: #444; }
+        textarea, input[type="text"] { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-family: monospace; }
+        textarea { height: 120px; }
+        button { background: #003366; color: white; border: none; padding: 10px 20px; font-size: 16px; border-radius: 4px; cursor: pointer; margin-top: 15px; }
+        button:hover { background: #002244; }
+        #status-box { background: #e6f4ea; border: 1px solid #ceead6; padding: 15px; border-radius: 4px; margin-bottom: 20px; display: none; }
+        .result-box { background: #fff; border-left: 4px solid #003366; padding: 15px; margin-top: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .badge { background: #e1dfdd; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
     </style>
 </head>
 <body>
-    <h1>Master-Thesis Evaluator</h1>
-    <p>Fügen Sie hier Text, Absätze <strong>oder Fotos/Grafiken</strong> (per Copy-Paste / Drag & Drop) ein:</p>
-    
-    <!-- Editierbarer Container, der Text & Bilder unterstützt -->
-    <div id="inputContainer" contenteditable="true" placeholder="Text oder Bild hier per Strg+V einfügen..."></div>
-    
-    <div class="button-group">
-        <button id="evalButton" onclick="startReview()">Evaluierung starten</button>
-        <button class="secondary" onclick="resetInputs()">Neue Eingabe</button>
+<div class="container">
+    <h1>Master-Thesis Evaluator (Deep Context & Literatur-Check)</h1>
+
+    <!-- Phase 1: Onboarding / Gesamtkontext -->
+    <div class="section" id="onboarding-section">
+        <h3>Phase 1: Initialisierung & Quellenprüfung (Einmalig)</h3>
+        <label>Inhaltsverzeichnis der Arbeit:</label>
+        <textarea id="toc" placeholder="1. Einleitung&#10;2. Grundlagen&#10;3. Methodik..."></textarea>
+
+        <label>Literaturverzeichnis (Vollständig):</label>
+        <textarea id="bibliography" placeholder="Müller, A. (2023): Titel der Arbeit...&#10;Schmidt, B. (2021)..."></textarea>
+
+        <label>Bisheriger Ist-Stand (Volltext-Auszug / bisherige Kapitel):</label>
+        <textarea id="draft_text" placeholder="Füge hier den bisher geschriebenen Text ein, damit der Agent weiß, was bereits existiert..."></textarea>
+
+        <button onclick="initializeWork()">Arbeit initialisieren & Literatur prüfen</button>
     </div>
 
-    <div id="results"></div>
+    <div id="status-box">
+        <strong>Status & Literatur-Prüfung:</strong>
+        <div id="status-content"></div>
+    </div>
 
-    <script>
-        async function startReview() {
-            const container = document.getElementById('inputContainer');
-            const evalBtn = document.getElementById('evalButton');
-            const text = container.innerText.trim();
-            
-            // Prüfen, ob ein Bild im Container eingefügt wurde
-            const imgElement = container.querySelector('img');
-            let imageBase64 = null;
-            let mimeType = "image/png";
+    <!-- Phase 2: Agiles Absatz-Lektorat -->
+    <div class="section" id="evaluation-section" style="opacity: 0.5; pointer-events: none;">
+        <h3>Phase 2: Absatz-Lektorat (Kontinuierlich)</h3>
+        <label>Aktueller Absatz zur Prüfung:</label>
+        <textarea id="paragraph" placeholder="Kopiere hier den aktuellen Absatz hinein, den du prüfen möchtest..."></textarea>
 
-            if (imgElement) {
-                const base64Data = imgElement.src;
-                if (base64Data.startsWith('data:')) {
-                    const parts = base64Data.split(',');
-                    mimeType = parts[0].match(/:(.*?);/)[1];
-                    imageBase64 = parts[1];
-                }
-            }
+        <button onclick="evaluateParagraph()">Absatz evaluieren</button>
+    </div>
 
-            if (!text && !imageBase64) {
-                alert('Bitte Text oder ein Bild eingeben');
+    <div id="result-container"></div>
+</div>
+
+<script>
+    let globalContextSummary = "";
+
+    function initializeWork() {
+        const toc = document.getElementById('toc').value;
+        const bibliography = document.getElementById('bibliography').value;
+        const draftText = document.getElementById('draft_text').value;
+
+        if (!bibliography) {
+            alert("Bitte gib zumindest das Literaturverzeichnis an.");
+            return;
+        }
+
+        document.getElementById('status-box').style.display = 'block';
+        document.getElementById('status-content').innerText = "Prüfe Literatur und analysiere Struktur...";
+
+        fetch('/initialize', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ toc: toc, bibliography: bibliography, draft_text: draftText })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                alert(data.error);
                 return;
             }
+            globalContextSummary = data.structural_analysis;
             
-            // Button-Zustand: Evaluierung läuft (Gelb: #FFD700, Textschwarz für besseren Kontrast auf Gelb)
-            evalBtn.innerText = 'Evaluierung läuft';
-            evalBtn.style.backgroundColor = '#FFD700';
-            evalBtn.style.color = '#000';
-            evalBtn.disabled = true;
-
-            const resDiv = document.getElementById('results');
-            resDiv.style.display = 'block';
-            resDiv.innerHTML = 'Prüfung läuft... Bitte warten (Agenten A, B und C analysieren Text/Grafik)...';
+            let html = "<ul>";
+            data.bibliography_check.forEach(item => { html += `<li>${item}</li>`; });
+            html += "</ul><hr><strong>Struktur & Ist-Stand erfasst:</strong><p>" + data.structural_analysis.substring(0, 300) + "...</p>";
             
-            try {
-                const response = await fetch('/evaluate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        text: text, 
-                        image: imageBase64,
-                        mime_type: mimeType
-                    })
-                });
-                
-                const data = await response.json();
-                
-                if (response.status !== 200) {
-                    throw new Error(data.error || 'Unbekannter Serverfehler');
-                }
+            document.getElementById('status-content').innerHTML = html;
+            
+            // Aktiviere Phase 2
+            document.getElementById('evaluation-section').style.opacity = "1";
+            document.getElementById('evaluation-section').style.pointerEvents = "auto";
+        })
+        .catch(err => {
+            alert("Fehler bei der Initialisierung: " + err);
+        });
+    }
 
-                // Button-Zustand: Evaluierung abgeschlossen (Grün: #31C950, Text wieder weiß)
-                evalBtn.innerText = 'Evaluierung abgeschlossen';
-                evalBtn.style.backgroundColor = '#31C950';
-                evalBtn.style.color = '#fff';
+    function evaluateParagraph() {
+        const paragraph = document.getElementById('paragraph').value;
+        if (!paragraph) {
+            alert("Bitte gib einen Absatz ein.");
+            return;
+        }
 
-                let critiqueHtml = '';
-                data.kritikpunkte.forEach(item => {
-                    critiqueHtml += `<div class="critique"><strong>${item.kategorie}</strong><br><em>\"${item.original_zitat}\"</em><br>${item.kritikpunkt}<br><small>Evidenz: ${item.evidenz_nachweis}</small></div>`;
-                });
+        const resContainer = document.getElementById('result-container');
+        resContainer.innerHTML = "<p><em>Analysiere Absatz im Gesamtkontext und gegen Datenbanken...</em></p>";
 
-                let originalDisplayHtml = escapeHtml(text);
-                if (imgElement) {
-                    originalDisplayHtml += `<br><img src="${imgElement.src}" style="max-width:100%; margin-top:10px;">`;
-                }
-
-                resDiv.innerHTML = `
-                    <h2>Gutachten</h2>
-                    <p><strong>Tendenz:</strong> ${data.gesamtnote_tendenz}</p>
-                    ${critiqueHtml}
-                    <h3>Vergleich: Ursprüngliche Eingabe vs. Überarbeiteter Vorschlag</h3>
-                    <div class="comparison-container">
-                        <div class="comparison-column original-col">
-                            <span class="column-title">Original (Text / Grafik)</span>
-                            <div>${originalDisplayHtml}</div>
-                        </div>
-                        <div class="comparison-column revised-col">
-                            <span class="column-title">Überarbeiteter Vorschlag</span>
-                            ${data.ueberarbeiteter_absatz}
-                        </div>
-                    </div>
-                `;
-            } catch (error) {
-                // Bei Fehler Button wieder freigeben
-                evalBtn.innerText = 'Evaluierung starten';
-                evalBtn.style.backgroundColor = '#007bff';
-                evalBtn.style.color = '#fff';
-                evalBtn.disabled = false;
-
-                resDiv.innerHTML = 'Fehler bei der Verarbeitung: ' + error.message;
-                console.error(error);
+        fetch('/evaluate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paragraph: paragraph, context_summary: globalContextSummary })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.error) {
+                resContainer.innerHTML = `<p style="color:red;">Fehler: ${data.error}</p>`;
+                return;
             }
-        }
 
-        function resetInputs() {
-            document.getElementById('inputContainer').innerHTML = '';
-            const resDiv = document.getElementById('results');
-            resDiv.style.display = 'none';
-            resDiv.innerHTML = '';
+            let html = `<div class="result-box">
+                <h3>Gutachten (Tendenz: <span style="color:#003366;">${data.gesamtnote_tendenz}</span>)</h3>`;
+            
+            if (data.kritikpunkte && data.kritikpunkte.length > 0) {
+                html += "<h4>Kritikpunkte:</h4><ul>";
+                data.kritikpunkte.forEach(k => {
+                    html += `<li><span class="badge">${k.kategorie}</span> <strong>Zit.:</strong> "${k.original_zitat}"<br><em>Mangel:</em> ${k.kritikpunkt}`;
+                    if (k.evidenz_nachweis) html += `<br><strong>Evidenz:</strong> ${k.evidenz_nachweis}`;
+                    html += `</li><br>`;
+                });
+                html += "</ul>";
+            } else {
+                html += "<p>Keine nennenswerten Mängel im Absatz gefunden.</p>";
+            }
 
-            // Button in den ursprünglichen Standardzustand zurücksetzen
-            const evalBtn = document.getElementById('evalButton');
-            evalBtn.innerText = 'Evaluierung starten';
-            evalBtn.style.backgroundColor = '#007bff';
-            evalBtn.style.color = '#fff';
-            evalBtn.disabled = false;
-        }
+            html += `<h4>Vorschlag für den überarbeiteten Absatz:</h4>
+                     <p style="background:#f8f9fa; padding:10px; border-left:3px solid #28a745;">${data.ueberarbeiteter_absatz}</p>
+                     </div>`;
 
-        function escapeHtml(string) {
-            return string
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
-        }
-    </script>
+            resContainer.innerHTML = html;
+        })
+        .catch(err => {
+            resContainer.innerHTML = `<p style="color:red;">Netzwerkfehler: ${err}</p>`;
+        });
+    }
+</script>
 </body>
 </html>

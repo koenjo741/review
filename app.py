@@ -12,128 +12,137 @@ PUBMED_API_KEY = "2d6671c4cc19fcc9bf7c972e504abf763b09"
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
 def search_pubmed(query: str) -> str:
-    """Sucht direkt in PubMed nach medizinischer Evidenz."""
     Entrez.email = PUBMED_EMAIL
     Entrez.api_key = PUBMED_API_KEY
     try:
-        handle = Entrez.esearch(db="pubmed", term=f"{query} AND (review[pt] OR guideline[pt])", retmax=3)
+        handle = Entrez.esearch(db="pubmed", term=f"{query} AND (review[pt] OR guideline[pt])", retmax=2)
         record = Entrez.read(handle)
         handle.close()
         id_list = record["IdList"]
-        if not id_list: 
-            return "Keine PubMed-Ergebnisse gefunden."
+        if not id_list: return "Nicht gefunden."
         fetch_handle = Entrez.efetch(db="pubmed", id=id_list, rettype="abstract", retmode="xml")
         articles = Entrez.read(fetch_handle)
         fetch_handle.close()
-        res = []
-        for art in articles['PubmedArticle']:
-            title = art['MedlineCitation']['Article'].get('ArticleTitle', 'Kein Titel')
-            res.append(title)
-        return "PubMed Treffer: " + " ; ".join(res)
-    except Exception as e: 
-        return f"PubMed Fehler: {str(e)}"
+        res = [art['MedlineCitation']['Article'].get('ArticleTitle', '') for art in articles.get('PubmedArticle', [])]
+        return "Gefunden in PubMed: " + " ; ".join(res)
+    except Exception:
+        return "Nicht in PubMed verifiziert."
 
 def search_semanticscholar(query: str) -> str:
-    """Sucht in der Semantic Scholar API nach wissenschaftlicher Evidenz."""
-    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={requests.utils.quote(query)}&limit=3&fields=title,abstract,year"
+    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={requests.utils.quote(query)}&limit=2&fields=title,year"
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=5)
         if response.status_code == 200:
-            data = response.json()
-            papers = data.get("data", [])
-            if not papers:
-                return "Keine Semantic Scholar Ergebnisse gefunden."
-            res = []
-            for p in papers:
-                title = p.get("title", "Kein Titel")
-                year = p.get("year", "k.A.")
-                res.append(f"{title} ({year})")
-            return "Semantic Scholar Treffer: " + " ; ".join(res)
-        else:
-            return f"Semantic Scholar Fehler: Status {response.status_code}"
-    except Exception as e:
-        return f"Semantic Scholar Fehler: {str(e)}"
+            papers = response.json().get("data", [])
+            if not papers: return "Nicht gefunden."
+            res = [f"{p.get('title')} ({p.get('year', 'k.A.')})" for p in papers]
+            return "Gefunden in Semantic Scholar: " + " ; ".join(res)
+    except Exception:
+        pass
+    return "Nicht in Semantic Scholar verifiziert."
 
 def search_arxiv(query: str) -> str:
-    """Sucht auf arXiv.org nach Preprints und aktuellen Forschungsarbeiten."""
-    url = f"http://export.arxiv.org/api/query?search_query=all:{requests.utils.quote(query)}&max_results=3"
+    url = f"http://export.arxiv.org/api/query?search_query=all:{requests.utils.quote(query)}&max_results=2"
     try:
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, timeout=5)
         if response.status_code == 200:
-            # arXiv liefert Atom-XML zurück
             root = ET.fromstring(response.content)
-            # Namespace berücksichtigen
             ns = {'atom': 'http://www.w3.org/2005/Atom'}
             entries = root.findall('atom:entry', ns)
-            if not entries:
-                return "Keine arXiv-Ergebnisse gefunden."
-            res = []
-            for entry in entries:
-                title_elem = entry.find('atom:title', ns)
-                title = title_elem.text.strip().replace('\n', ' ') if title_elem is not None else "Kein Titel"
-                res.append(title)
-            return "arXiv Treffer: " + " ; ".join(res)
-        else:
-            return f"arXiv Fehler: Status {response.status_code}"
-    except Exception as e:
-        return f"arXiv Fehler: {str(e)}"
+            if not entries: return "Nicht gefunden."
+            res = [e.find('atom:title', ns).text.strip().replace('\n', ' ') for e in entries if e.find('atom:title', ns) is not None]
+            return "Gefunden auf arXiv: " + " ; ".join(res)
+    except Exception:
+        pass
+    return "Nicht auf arXiv verifiziert."
 
 def call_gemini(prompt: str) -> str:
-    """Ruft Gemini direkt über die offizielle REST-API auf."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"
     headers = {"Content-Type": "application/json"}
-    payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
-    }
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
     response = requests.post(url, headers=headers, json=payload, timeout=60)
     if response.status_code == 200:
-        data = response.json()
         try:
-            return data["candidates"][0]["content"]["parts"][0]["text"]
+            return response.json()["candidates"][0]["content"]["parts"][0]["text"]
         except Exception:
-            return "Fehler beim Parsen der Gemini-Antwort."
-    else:
-        return f"API-Fehler: {response.status_code} - {response.text}"
+            return "Fehler beim Parsen."
+    return f"API-Fehler: {response.status_code}"
 
 @app.route('/')
 def index():
     return render_template('index.html')
 
+@app.route('/initialize', methods=['POST'])
+def initialize_work():
+    data = request.json
+    toc = data.get('toc', '')
+    bibliography = data.get('bibliography', '')
+    draft_text = data.get('draft_text', '')
+
+    if not bibliography:
+        return jsonify({"error": "Literaturverzeichnis fehlt."}), 400
+
+    # Literaturverzeichnis-Check (Wir splten die Zeilen auf und prüfen stichprobenartig bzw. komplett)
+bib_lines = [line.strip() for line in bibliography.split('\n') if len(line.strip()) > 10]
+    checked_sources = []
+    for entry in bib_lines[:10]:  # Prüft die ersten 10 Einträge, um Timeouts zu vermeiden
+        pm = search_pubmed(entry[:50])
+        s2 = search_semanticscholar(entry[:50])
+        if "Nicht gefunden" not in pm or "Nicht gefunden" not in s2:
+            checked_sources.append(f"✓ Valide: {entry}")
+        else:
+            checked_sources.append(f"⚠ Potenziell unbestätigt/Fake: {entry}")
+
+    # Prompt für die Struktur-Analyse & Ist-Stand-Abgleich
+    prompt_init = (
+        f"Du bist ein wissenschaftlicher Prüfungsausschuss. Analysiere das Inhaltsverzeichnis und den bisherigen Textstand.\n\n"
+        f"Inhaltsverzeichnis:\n{toc}\n\n"
+        f"Bisheriger Ist-Stand (Volltext-Auschnitt):\n{draft_text[:3000]}\n\n"
+        f"Gleiche das Inhaltsverzeichnis mit dem Ist-Stand ab und definiere, welche Kapitel bereits geschrieben sind und welche noch fehlen, "
+        f"damit der Lektor später weiß, dass fehlende Kapitel KEIN Fehler sind."
+    )
+    analysis = call_gemini(prompt_init)
+
+    return jsonify({
+        "status": "success",
+        "bibliography_check": checked_sources,
+        "structural_analysis": analysis
+    }), 200
+
 @app.route('/evaluate', methods=['POST'])
 def evaluate():
     data = request.json
-    text = data.get('text', '')
+    paragraph = data.get('paragraph', '')
+    context_summary = data.get('context_summary', '')
     
-    if not text:
-        return jsonify({"error": "Kein Text übergeben"}), 400
+    if not paragraph:
+        return jsonify({"error": "Kein Absatz übergeben"}), 400
 
     try:
-        # 1. Evidenz-Abfrage aus allen drei Datenbanken parallel
-        search_query = text[:80]
-        pubmed_kontext = search_pubmed(search_query)
-        s2_kontext = search_semanticscholar(search_query)
-        arxiv_kontext = search_arxiv(search_query)
+        # Live-Recherche für den aktuellen Absatz
+        search_query = paragraph[:80]
+        pubmed_res = search_pubmed(search_query)
+        s2_res = search_semanticscholar(search_query)
+        arxiv_res = search_arxiv(search_query)
 
-        # 2. Agent A: Lektorat
-        prompt_a = f"Du bist ein akademischer Lektor. Reviewe den Text auf Grammatik, Stil und Logik: {text}"
-        res_a_text = call_gemini(prompt_a)
+        # Agent A: Lektorat
+        prompt_a = f"Akademischer Lektor. Reviewe den Absatz auf Grammatik, Stil und Logik:\n{paragraph}"
+        res_a = call_gemini(prompt_a)
 
-        # 3. Agent B: Fachprüfung unter Einbeziehung aller drei Quellen
+        # Agent B: Fachprüfung im Gesamtkontext
         prompt_b = (
-            f"Du bist ein wissenschaftlicher Reviewer. Prüfe die Fakten im Text: {text}\n\n"
-            f"PubMed-Evidenz:\n{pubmed_kontext}\n\n"
-            f"Semantic Scholar-Evidenz:\n{s2_kontext}\n\n"
-            f"arXiv-Evidenz (Preprints):\n{arxiv_kontext}"
+            f"Wissenschaftlicher Reviewer. Prüfe den Faktengehalt des Absatzes im Licht der Gesamtarbeit.\n\n"
+            f"Hintergrund & Struktur der Gesamtarbeit:\n{context_summary}\n\n"
+            f"Aktueller Absatz:\n{paragraph}\n\n"
+            f"Live-Datenbank Evidenz:\n{pubmed_res}\n{s2_res}\n{arxiv_res}"
         )
-        res_b_text = call_gemini(prompt_b)
+        res_b = call_gemini(prompt_b)
 
-        # 4. Agent C: Finales JSON-Gutachten
+        # Agent C: Finales JSON
         prompt_c = (
-            f"Du bist der Prüfungsvorsitzende. Erstelle ein finales Gutachten basierend auf:\n"
-            f"Originaltext: {text}\n\n"
-            f"Lektorat: {res_a_text}\n\n"
-            f"Fachprüfung: {res_b_text}\n\n"
-            f"Antworte AUSSCHLIESSLICH im folgenden JSON-Format (ohne Markdown-Blocks):\n"
+            f"Prüfungsvorsitzender. Erstelle das finale Gutachten als reines JSON:\n"
+            f"Absatz: {paragraph}\n\nLektorat: {res_a}\n\nFachprüfung: {res_b}\n\n"
+            "Antworte AUSSCHLIESSLICH im Format:\n"
             "{\n"
             '  "gesamtnote_tendenz": "string",\n'
             '  "kritikpunkte": [\n'
@@ -149,15 +158,12 @@ def evaluate():
         )
         
         raw_res = call_gemini(prompt_c).strip()
-        
         if raw_res.startswith("```"):
             raw_res = raw_res.split("```")[1]
-            if raw_res.startswith("json"):
-                raw_res = raw_res[4:]
+            if raw_res.startswith("json"): raw_res = raw_res[4:]
         raw_res = raw_res.strip()
 
-        json_data = json.loads(raw_res)
-        return jsonify(json_data), 200
+        return jsonify(json.loads(raw_res)), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
