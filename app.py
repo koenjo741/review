@@ -1,17 +1,14 @@
 from flask import Flask, render_template, request, jsonify
 from Bio import Entrez
-from google import genai
+import requests
 import os
 import json
 
 app = Flask(__name__)
 
-# Konfiguration
 PUBMED_EMAIL = "josef_koenig@hotmail.com"
 PUBMED_API_KEY = "2d6671c4cc19fcc9bf7c972e504abf763b09"
-
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
-client = genai.Client(api_key=GOOGLE_API_KEY)
 
 def search_pubmed(query: str) -> str:
     """Sucht direkt in PubMed nach medizinischer Evidenz."""
@@ -35,6 +32,23 @@ def search_pubmed(query: str) -> str:
     except Exception as e: 
         return f"PubMed Fehler: {str(e)}"
 
+def call_gemini(prompt: str) -> str:
+    """Ruft Gemini direkt über die offizielle REST-API auf (ohne SDK-Bloat)."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "contents": [{"parts": [{"text": prompt}]}]
+    }
+    response = requests.post(url, headers=headers, json=payload, timeout=60)
+    if response.status_code == 200:
+        data = response.json()
+        try:
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        except Exception:
+            return "Fehler beim Parsen der Gemini-Antwort."
+    else:
+        return f"API-Fehler: {response.status_code} - {response.text}"
+
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -48,54 +62,51 @@ def evaluate():
         return jsonify({"error": "Kein Text übergeben"}), 400
 
     try:
-        # 1. PubMed-Evidenz einholen
+        # 1. PubMed Abfrage
         pubmed_kontext = search_pubmed(text[:80])
 
-        # 2. Agent A: Lektorat (Verwende hier das blitzschnelle Flash-Modell)
+        # 2. Agent A: Lektorat
         prompt_a = f"Du bist ein akademischer Lektor. Reviewe den Text auf Grammatik, Stil und Logik: {text}"
-        res_a = client.models.generate_content(model="gemini-2.5-flash", contents=prompt_a)
+        res_a_text = call_gemini(prompt_a)
 
         # 3. Agent B: Fachprüfung
         prompt_b = (
             f"Du bist ein medizinischer Reviewer und Informatiker. Prüfe die Fakten im Text: {text}\n\n"
             f"Evidenz-Datenbankauszug:\n{pubmed_kontext}"
         )
-        res_b = client.models.generate_content(model="gemini-2.5-flash", contents=prompt_b)
+        res_b_text = call_gemini(prompt_b)
 
-        # 4. Agent C: Finales JSON erzwingen (über striktes Prompting statt fehleranfälligem Schema-Mapping)
+        # 4. Agent C: JSON-Gutachten erzwingen
         prompt_c = (
             f"Du bist der Prüfungsvorsitzende. Erstelle ein finales Gutachten basierend auf:\n"
             f"Originaltext: {text}\n\n"
-            f"Lektorat: {res_a.text}\n\n"
-            f"Fachprüfung: {res_b.text}\n\n"
-            f"Antworte AUSSCHLIESSLICH im folgenden JSON-Format (ohne Markdown-Bloecke wie ```json):\n"
+            f"Lektorat: {res_a_text}\n\n"
+            f"Fachprüfung: {res_b_text}\n\n"
+            f"Antworte AUSSCHLIESSLICH im folgenden JSON-Format (ohne Markdown-Blocks):\n"
             "{\n"
             '  "gesamtnote_tendenz": "string",\n'
             '  "kritikpunkte": [\n'
             "    {\n"
-            '      \"kategorie\": \"Stil/Logik oder Fachliche Evidenz\",\n'
-            '      \"original_zitat\": \"string\",\n'
-            '      \"kritikpunkt\": \"string\",\n'
-            '      \"evidenz_nachweis\": \"string\"\n'
+            '      "kategorie": "Stil/Logik oder Fachliche Evidenz",\n'
+            '      "original_zitat": "string",\n'
+            '      "kritikpunkt": "string",\n'
+            '      "evidenz_nachweis": "string"\n'
             "    }\n"
             "  ],\n"
             '  "ueberarbeiteter_absatz": "string"\n'
             "}"
         )
         
-        res_c = client.models.generate_content(model="gemini-2.5-flash", contents=prompt_c)
+        raw_res = call_gemini(prompt_c).strip()
         
-        # Rohtextbereinigung falls nötig und direkt als JSON zurückgeben
-        raw_response = res_c.text.strip()
-        if raw_response.startswith("```"):
-            raw_response = raw_response.split("```")[1]
-            if raw_response.startswith("json"):
-                raw_response = raw_response[4:]
-        raw_response = raw_response.strip()
+        # Markdown-Codeblöcke sicherheitshalber entfernen
+        if raw_res.startswith("```"):
+            raw_res = raw_res.split("```")[1]
+            if raw_res.startswith("json"):
+                raw_res = raw_res[4:]
+        raw_res = raw_res.strip()
 
-        # Validieren, dass es valides JSON ist
-        json_data = json.loads(raw_response)
-        
+        json_data = json.loads(raw_res)
         return jsonify(json_data), 200
 
     except Exception as e:
