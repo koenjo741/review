@@ -12,7 +12,6 @@ app = Flask(__name__)
 PUBMED_EMAIL = "josef_koenig@hotmail.com"
 PUBMED_API_KEY = "2d6671c4cc19fcc9bf7c972e504abf763b09"
 
-# Zentraler Client (verhindert RAM-Lecks und Mehrfach-Instanziierung)
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 client = genai.Client(api_key=GOOGLE_API_KEY)
 
@@ -62,25 +61,25 @@ def evaluate():
         return jsonify({"error": "Kein Text übergeben"}), 400
 
     try:
-        # 1. PubMed-Evidenz vorab stabil einholen (schont den RAM und verhindert Tool-Timeouts)
-        pubmed_kontext = search_pubmed(text[:100]) # Nutzt die ersten Zeichen als Suchanfrage
+        # 1. PubMed-Abfrage rein deterministisch als Text ausführen
+        pubmed_kontext = search_pubmed(text[:80])
 
-        # 2. Agent A: Lektorat (Grammatik, Stil, Logik)
+        # 2. Agent A: Lektorat
         prompt_a = f"Du bist ein akademischer Lektor. Reviewe den Text auf Grammatik, Stil und Logik: {text}"
         res_a = client.models.generate_content(model="gemini-2.5-flash", contents=prompt_a)
 
-        # 3. Agent B: Fachprüfung unter Einbeziehung der echten PubMed-Treffer
+        # 3. Agent B: Fachprüfung mit dem PubMed-Kontext als reinem Text
         prompt_b = (
             f"Du bist ein medizinischer Reviewer und Informatiker. Prüfe die Fakten im Text: {text}\n\n"
-            f"Gefundene PubMed-Evidenz zur Überprüfung:\n{pubmed_kontext}"
+            f"Evidenz-Datenbankauszug:\n{pubmed_kontext}"
         )
         res_b = client.models.generate_content(model="gemini-2.5-pro", contents=prompt_b)
 
-        # 4. Agent C: Prüfungsvorsitz & finale JSON-Synthese
+        # 4. Agent C: Finale JSON-Synthese ohne jegliche automatische Tools
         prompt_c = (
             f"Du bist der Prüfungsvorsitzende. Originaltext: {text}\n\n"
-            f"Lektoratsergebnis: {res_a.text}\n\n"
-            f"Fachprüfungsergebnis: {res_b.text}\n\n"
+            f"Lektorat: {res_a.text}\n\n"
+            f"Fachprüfung: {res_b.text}\n\n"
             f"Erstelle das finale Gutachten strikt als JSON."
         )
         res_c = client.models.generate_content(
