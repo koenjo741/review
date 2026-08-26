@@ -32,24 +32,34 @@ def search_pubmed(query: str) -> str:
     except Exception as e: 
         return f"PubMed Fehler: {str(e)}"
 
-def call_gemini_multimodal(prompt: str, image_data: str = None, mime_type: str = "image/png") -> str:
-    """Ruft Gemini multimodal (Text + optionales Bild) über die REST-API auf."""
+def search_semanticscholar(query: str) -> str:
+    """Sucht in der Semantic Scholar API nach wissenschaftlicher Evidenz."""
+    url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={requests.utils.quote(query)}&limit=3&fields=title,abstract,year"
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            papers = data.get("data", [])
+            if not papers:
+                return "Keine Semantic Scholar Ergebnisse gefunden."
+            res = []
+            for p in papers:
+                title = p.get("title", "Kein Titel")
+                year = p.get("year", "k.A.")
+                res.append(f"{title} ({year})")
+            return "Semantic Scholar Treffer: " + " ; ".join(res)
+        else:
+            return f"Semantic Scholar Fehler: Status {response.status_code}"
+    except Exception as e:
+        return f"Semantic Scholar Fehler: {str(e)}"
+
+def call_gemini(prompt: str) -> str:
+    """Ruft Gemini direkt über die offizielle REST-API auf."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"
     headers = {"Content-Type": "application/json"}
-    
-    parts = [{"text": prompt}]
-    if image_data:
-        parts.append({
-            "inline_data": {
-                "mime_type": mime_type,
-                "data": image_data
-            }
-        })
-        
     payload = {
-        "contents": [{"parts": parts}]
+        "contents": [{"parts": [{"text": prompt}]}]
     }
-    
     response = requests.post(url, headers=headers, json=payload, timeout=60)
     if response.status_code == 200:
         data = response.json()
@@ -68,39 +78,34 @@ def index():
 def evaluate():
     data = request.json
     text = data.get('text', '')
-    image_base64 = data.get('image', None)
-    mime_type = data.get('mime_type', 'image/png')
     
-    if not text and not image_base64:
-        return jsonify({"error": "Kein Text oder Bild übergeben"}), 400
+    if not text:
+        return jsonify({"error": "Kein Text übergeben"}), 400
 
     try:
-        # 1. PubMed Abfrage (falls Text vorhanden)
-        pubmed_kontext = search_pubmed(text[:80]) if text else "Kein Text für PubMed-Suche."
+        # 1. Parallele Evidenz-Abfrage aus PubMed UND Semantic Scholar
+        search_query = text[:80]
+        pubmed_kontext = search_pubmed(search_query)
+        s2_kontext = search_semanticscholar(search_query)
 
         # 2. Agent A: Lektorat
-        prompt_a = f"Du bist ein akademischer Lektor. Reviewe den Text bzw. das Bild auf Grammatik, Stil, Layout und Logik:\nText: {text}"
-        res_a_text = call_gemini_multimodal(prompt_a, image_base64, mime_type)
+        prompt_a = f"Du bist ein akademischer Lektor. Reviewe den Text auf Grammatik, Stil und Logik: {text}"
+        res_a_text = call_gemini(prompt_a)
 
-        # 3. Agent B: Fachprüfung
+        # 3. Agent B: Fachprüfung unter Einbeziehung beider Datenbanken
         prompt_b = (
-            f"Du bist ein medizinischer Reviewer und Informatiker. Prüfe die Fakten im eingereichten Material:\n"
-            f"Text: {text}\n\n"
-            f"Evidenz-Datenbankauszug:\n{pubmed_kontext}"
+            f"Du bist ein wissenschaftlicher Reviewer. Prüfe die Fakten im Text: {text}\n\n"
+            f"PubMed-Evidenz:\n{pubmed_kontext}\n\n"
+            f"Semantic Scholar-Evidenz:\n{s2_kontext}"
         )
-        res_b_text = call_gemini_multimodal(prompt_b, image_base64, mime_type)
+        res_b_text = call_gemini(prompt_b)
 
-        # 4. Agent C: JSON-Gutachten erzwingen
+        # 4. Agent C: Finales JSON-Gutachten
         prompt_c = (
             f"Du bist der Prüfungsvorsitzende. Erstelle ein finales Gutachten basierend auf:\n"
             f"Originaltext: {text}\n\n"
             f"Lektorat: {res_a_text}\n\n"
             f"Fachprüfung: {res_b_text}\n\n"
-            f"Anweisungen zur Sprachregelung:\n"
-            f"- Erkenne die Originalsprache des eingereichten Materials (z. B. Englisch).\n"
-            f"- Die Felder 'gesamtnote_tendenz' und 'kritikpunkte' müssen zwingend auf DEUTSCH verfasst werden.\n"
-            f"- Das Feld 'ueberarbeiteter_absatz' muss strikt in der URSPRUNGSSPRACHE des Originaltextes verfasst werden.\n"
-            f"- Markiere in dem 'ueberarbeiteter_absatz' alle geänderten Textstellen gelb: <mark style=\"background-color: #fff3cd; color: #856404;\">Textstelle</mark>.\n\n"
             f"Antworte AUSSCHLIESSLICH im folgenden JSON-Format (ohne Markdown-Blocks):\n"
             "{\n"
             '  "gesamtnote_tendenz": "string",\n'
@@ -116,9 +121,8 @@ def evaluate():
             "}"
         )
         
-        raw_res = call_gemini_multimodal(prompt_c, image_base64, mime_type).strip()
+        raw_res = call_gemini(prompt_c).strip()
         
-        # Markdown-Codeblöcke sicherheitshalber entfernen
         if raw_res.startswith("```"):
             raw_res = raw_res.split("```")[1]
             if raw_res.startswith("json"):
