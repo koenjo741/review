@@ -36,7 +36,9 @@
         }
 
         .button-group { margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
-        button { padding: 10px 20px; background-color: #007bff; color: white; border: none; cursor: pointer; }
+        
+        /* Basis-Styling für den Haupt-Evaluierungsbutton */
+        button { padding: 10px 20px; background-color: #007bff; color: white; border: none; cursor: pointer; transition: background-color 0.3s ease; }
         button.secondary { background-color: #6c757d; }
         button:hover { opacity: 0.9; }
         
@@ -90,7 +92,7 @@
     <div id="inputContainer" contenteditable="true" placeholder="Text oder Bild hier per Strg+V einfügen..."></div>
     
     <div class="button-group">
-        <button onclick="startReview()">Evaluierung starten</button>
+        <button id="evalButton" onclick="startReview()">Evaluierung starten</button>
         <button class="secondary" onclick="resetInputs()">Neue Eingabe</button>
     </div>
 
@@ -99,6 +101,7 @@
     <script>
         async function startReview() {
             const container = document.getElementById('inputContainer');
+            const evalBtn = document.getElementById('evalButton');
             const text = container.innerText.trim();
             
             // Prüfen, ob ein Bild im Container eingefügt wurde
@@ -107,7 +110,6 @@
             let mimeType = "image/png";
 
             if (imgElement) {
-                // Konvertiert das Bild-Element in Base64 für den API-Versand
                 const base64Data = imgElement.src;
                 if (base64Data.startsWith('data:')) {
                     const parts = base64Data.split(',');
@@ -121,6 +123,12 @@
                 return;
             }
             
+            // Button-Zustand: Evaluierung läuft (Gelb: #FFD700, Textschwarz für besseren Kontrast auf Gelb)
+            evalBtn.innerText = 'Evaluierung läuft';
+            evalBtn.style.backgroundColor = '#FFD700';
+            evalBtn.style.color = '#000';
+            evalBtn.disabled = true;
+
             const resDiv = document.getElementById('results');
             resDiv.style.display = 'block';
             resDiv.innerHTML = 'Prüfung läuft... Bitte warten (Agenten A, B und C analysieren Text/Grafik)...';
@@ -142,12 +150,16 @@
                     throw new Error(data.error || 'Unbekannter Serverfehler');
                 }
 
+                // Button-Zustand: Evaluierung abgeschlossen (Grün: #31C950, Text wieder weiß)
+                evalBtn.innerText = 'Evaluierung abgeschlossen';
+                evalBtn.style.backgroundColor = '#31C950';
+                evalBtn.style.color = '#fff';
+
                 let critiqueHtml = '';
                 data.kritikpunkte.forEach(item => {
                     critiqueHtml += `<div class="critique"><strong>${item.kategorie}</strong><br><em>\"${item.original_zitat}\"</em><br>${item.kritikpunkt}<br><small>Evidenz: ${item.evidenz_nachweis}</small></div>`;
                 });
 
-                // Originalansicht im linken Kasten aufbauen (inkl. Bild, falls vorhanden)
                 let originalDisplayHtml = escapeHtml(text);
                 if (imgElement) {
                     originalDisplayHtml += `<br><img src="${imgElement.src}" style="max-width:100%; margin-top:10px;">`;
@@ -170,6 +182,12 @@
                     </div>
                 `;
             } catch (error) {
+                // Bei Fehler Button wieder freigeben
+                evalBtn.innerText = 'Evaluierung starten';
+                evalBtn.style.backgroundColor = '#007bff';
+                evalBtn.style.color = '#fff';
+                evalBtn.disabled = false;
+
                 resDiv.innerHTML = 'Fehler bei der Verarbeitung: ' + error.message;
                 console.error(error);
             }
@@ -180,6 +198,13 @@
             const resDiv = document.getElementById('results');
             resDiv.style.display = 'none';
             resDiv.innerHTML = '';
+
+            // Button in den ursprünglichen Standardzustand zurücksetzen
+            const evalBtn = document.getElementById('evalButton');
+            evalBtn.innerText = 'Evaluierung starten';
+            evalBtn.style.backgroundColor = '#007bff';
+            evalBtn.style.color = '#fff';
+            evalBtn.disabled = false;
         }
 
         function escapeHtml(string) {
@@ -190,6 +215,6 @@
                 .replace(/"/g, "&quot;")
                 .replace(/'/g, "&#039;");
         }
-    </scrip
+    </script>
 </body>
 </html>
