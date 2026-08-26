@@ -76,12 +76,17 @@ def evaluate():
         )
         res_b_text = call_gemini(prompt_b)
 
-        # 4. Agent C: JSON-Gutachten erzwingen
+        # 4. Agent C: JSON-Gutachten erzwingen (mit Sprachsteuerung & Gelbmarkierung für Änderungen)
         prompt_c = (
             f"Du bist der Prüfungsvorsitzende. Erstelle ein finales Gutachten basierend auf:\n"
             f"Originaltext: {text}\n\n"
             f"Lektorat: {res_a_text}\n\n"
             f"Fachprüfung: {res_b_text}\n\n"
+            f"Anweisungen zur Sprachregelung:\n"
+            f"- Erkenne die Originalsprache des eingereichten Originaltextes (z. B. Englisch).\n"
+            f"- Die Felder 'gesamtnote_tendenz' und 'kritikpunkte' (Kategorie, Begründung etc.) müssen zwingend auf DEUTSCH verfasst werden.\n"
+            f"- Das Feld 'ueberarbeiteter_absatz' muss strikt in der URSPRUNGSSPRACHE des Originaltextes verfasst werden.\n"
+            f"- Markiere in dem 'ueberarbeiteter_absatz' alle geänderten oder neu hinzugefügten Textstellen mit einem HTML-Tag gelb an, genau so: <mark style=\"background-color: #fff3cd; color: #856404;\">Textstelle</mark>.\n\n"
             f"Antworte AUSSCHLIESSLICH im folgenden JSON-Format (ohne Markdown-Blocks):\n"
             "{\n"
             '  "gesamtnote_tendenz": "string",\n'
