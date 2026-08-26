@@ -20,8 +20,9 @@
         #status-box { background: #e6f4ea; border: 1px solid #ceead6; padding: 15px; border-radius: 4px; margin-bottom: 20px; display: none; }
         .scrollable-box { max-height: 250px; overflow-y: auto; background: #fff; padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin-top: 5px; }
         
+        /* Einzeilige, hart rechts abgeschnittene Zitate ohne eckige Klammern */
         .bib-item { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; font-size: 14px; font-family: monospace; }
-        .bib-warning { color: #d9534f; font-weight: bold; white-space: normal; margin-bottom: 10px; }
+        .bib-warning { color: #d9534f; font-weight: bold; white-space: normal; margin-bottom: 10px; font-size: 13px; padding-left: 15px; }
 
         .result-box { background: #fff; border: 1px solid #ccc; padding: 20px; margin-top: 20px; border-radius: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
         .badge { background: #e1dfdd; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
@@ -112,12 +113,13 @@
             }
             globalContextSummary = data.full_context;
             
+            // Exakte Reihung nach Nummerierung ohne eckige Klammern
             let bibHtml = "";
             data.bibliography_check.forEach(item => {
                 if (item.status === "valide") {
-                    bibHtml += `<div class="bib-item" title="${item.text}">✓ Valide: [${item.id}] ${item.text}</div>`;
+                    bibHtml += `<div class="bib-item" title="${item.text}">✓ Valide: ${item.id}. ${item.text}</div>`;
                 } else {
-                    bibHtml += `<div class="bib-item" style="color:#d9534f;" title="${item.text}">⚠ Nicht verifiziert: [${item.id}] ${item.text}</div>`;
+                    bibHtml += `<div class="bib-item" style="color:#d9534f;" title="${item.text}">⚠ Nicht verifiziert: ${item.id}. ${item.text}</div>`;
                     bibHtml += `<div class="bib-warning">↳ Grund: ${item.reason}</div>`;
                 }
             });
@@ -219,6 +221,7 @@
         });
     }
 
+    date
     function clearParagraph() {
         document.getElementById('paragraph').value = "";
         document.getElementById('result-container').innerHTML = "";

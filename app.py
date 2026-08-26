@@ -83,10 +83,20 @@ def initialize_work():
     if not bibliography:
         return jsonify({"error": "Literaturverzeichnis fehlt."}), 400
 
-    raw_entries = re.split(r'\n\s*\n|(?=\n\s*(?:\[\d+\]|\d+\.))', bibliography)
-    bib_entries = [e.strip().replace('\n', ' ') for e in raw_entries if len(e.strip()) > 15]
-    if len(bib_entries) <= 1:
-        bib_entries = [line.strip() for line in bibliography.split('\n') if len(line.strip()) > 15]
+    # Bereinige PDF-Artefakte wie Kopf-/Fusszeilen (z.B. "July 2, 2025 Samuel Hammer, BSc. 70/83")
+    cleaned_bib = re.sub(r'July\s+\d+,\s+\d{4}.*?BSc\..*?\d+/\d+', '', bibliography)
+    cleaned_bib = re.sub(r'\b[A-Za-z\s]+\b,\s+BSc\..*?\d+/\d+', '', cleaned_bib)
+
+    # Exakter Parser: Trennt anhand von Nummern am Anfang (z.B. "1.", "28." oder "[1]")
+    raw_entries = re.split(r'\n(?=\d{1,3}\.\s|[A-Z][a-z]+,\s[A-Z]\.)', cleaned_bib)
+    if len(raw_entries) <= 1:
+        raw_entries = cleaned_bib.split('\n')
+
+    bib_entries = []
+    for entry in raw_entries:
+        cleaned_entry = entry.replace('\n', ' ').strip()
+        if len(cleaned_entry) > 10:
+            bib_entries.append(cleaned_entry)
 
     checked_sources = []
     for idx, entry in enumerate(bib_entries, start=1):
@@ -102,7 +112,7 @@ def initialize_work():
                 "id": idx, 
                 "status": "warning", 
                 "text": entry, 
-                "reason": "In keiner akademischen Datenbank (PubMed, Semantic Scholar, arXiv) eindeutig verifiziert. Mögliche Fake-Quelle oder Tippfehler."
+                "reason": "In keiner akademischen Datenbank (PubMed, Semantic Scholar, arXiv) eindeutig verifiziert. Mögliche Fake-Quelle oder unpräziser Eintrag."
             })
 
     prompt_init = (
@@ -150,10 +160,9 @@ def evaluate():
         prompt_c = (
             f"Prüfungsvorsitzender. Erstelle das finale Gutachten als reines JSON:\n"
             f"Absatz: {paragraph}\n\nLektorat: {res_a}\n\nFachprüfung: {res_b}\n\n"
-            f"WICHTIG SPRACHREGEL: Erkenne die Sprache des Originalabsatzes ({paragraph[:40]}...). "
-            f"Der 'ueberarbeiteter_absatz' MUSS AUSNAHMSLOS IN DERSELBEN SPRACHLICHEN URSPRUNGSSPRACHE bleiben (Deutsch bleibt Deutsch, Englisch bleibt Englisch)! "
-            f"Keine automatische Übersetzung in eine andere Sprache!\n\n"
-            f"Markiere korrigierte oder optimierte Textstellen im 'ueberarbeiteter_absatz' unbedingt mit HTML-Leuchtstift-Tags wie <span class=\"highlight\">optimierter Text</span>.\n\n"
+            f"STRIKTE SPRACHREGEL: Erkenne die Sprache des Originalabsatzes. "
+            f"Der 'ueberarbeiteter_absatz' MUSS ZWINGEND IN EXAKT DERSELBEN SPRACHE BLEIBEN (Englischer Text bleibt auf Englisch, deutscher Text auf Deutsch)! Keine automatische Übersetzung!\n\n"
+            f"Markiere korrigierte oder optimierte Textstellen im 'ueberarbeiteter_absatz' ausschließlich mit HTML-Leuchtstift-Tags: <span class=\"highlight\">optimierter Text</span>.\n\n"
             "Antworte AUSSCHLIESSLICH im Format:\n"
             "{\n"
             '  "gesamtnote_tendenz": "string",\n'
