@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify
 from Bio import Entrez
 import requests
+import xml.etree.ElementTree as ET
 import os
 import json
 
@@ -53,6 +54,30 @@ def search_semanticscholar(query: str) -> str:
     except Exception as e:
         return f"Semantic Scholar Fehler: {str(e)}"
 
+def search_arxiv(query: str) -> str:
+    """Sucht auf arXiv.org nach Preprints und aktuellen Forschungsarbeiten."""
+    url = f"http://export.arxiv.org/api/query?search_query=all:{requests.utils.quote(query)}&max_results=3"
+    try:
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            # arXiv liefert Atom-XML zurück
+            root = ET.fromstring(response.content)
+            # Namespace berücksichtigen
+            ns = {'atom': 'http://www.w3.org/2005/Atom'}
+            entries = root.findall('atom:entry', ns)
+            if not entries:
+                return "Keine arXiv-Ergebnisse gefunden."
+            res = []
+            for entry in entries:
+                title_elem = entry.find('atom:title', ns)
+                title = title_elem.text.strip().replace('\n', ' ') if title_elem is not None else "Kein Titel"
+                res.append(title)
+            return "arXiv Treffer: " + " ; ".join(res)
+        else:
+            return f"arXiv Fehler: Status {response.status_code}"
+    except Exception as e:
+        return f"arXiv Fehler: {str(e)}"
+
 def call_gemini(prompt: str) -> str:
     """Ruft Gemini direkt über die offizielle REST-API auf."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"
@@ -83,20 +108,22 @@ def evaluate():
         return jsonify({"error": "Kein Text übergeben"}), 400
 
     try:
-        # 1. Parallele Evidenz-Abfrage aus PubMed UND Semantic Scholar
+        # 1. Evidenz-Abfrage aus allen drei Datenbanken parallel
         search_query = text[:80]
         pubmed_kontext = search_pubmed(search_query)
         s2_kontext = search_semanticscholar(search_query)
+        arxiv_kontext = search_arxiv(search_query)
 
         # 2. Agent A: Lektorat
         prompt_a = f"Du bist ein akademischer Lektor. Reviewe den Text auf Grammatik, Stil und Logik: {text}"
         res_a_text = call_gemini(prompt_a)
 
-        # 3. Agent B: Fachprüfung unter Einbeziehung beider Datenbanken
+        # 3. Agent B: Fachprüfung unter Einbeziehung aller drei Quellen
         prompt_b = (
             f"Du bist ein wissenschaftlicher Reviewer. Prüfe die Fakten im Text: {text}\n\n"
             f"PubMed-Evidenz:\n{pubmed_kontext}\n\n"
-            f"Semantic Scholar-Evidenz:\n{s2_kontext}"
+            f"Semantic Scholar-Evidenz:\n{s2_kontext}\n\n"
+            f"arXiv-Evidenz (Preprints):\n{arxiv_kontext}"
         )
         res_b_text = call_gemini(prompt_b)
 
