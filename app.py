@@ -4,6 +4,7 @@ import requests
 import xml.etree.ElementTree as ET
 import os
 import json
+import re
 
 app = Flask(__name__)
 
@@ -12,7 +13,6 @@ PUBMED_API_KEY = "2d6671c4cc19fcc9bf7c972e504abf763b09"
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
 def search_pubmed(query: str) -> str:
-    """Sucht direkt in PubMed nach medizinischer Evidenz."""
     Entrez.email = PUBMED_EMAIL
     Entrez.api_key = PUBMED_API_KEY
     try:
@@ -30,7 +30,6 @@ def search_pubmed(query: str) -> str:
         return "Nicht in PubMed verifiziert."
 
 def search_semanticscholar(query: str) -> str:
-    """Sucht in der Semantic Scholar API nach wissenschaftlicher Evidenz."""
     url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={requests.utils.quote(query)}&limit=2&fields=title,year"
     try:
         response = requests.get(url, timeout=5)
@@ -44,7 +43,6 @@ def search_semanticscholar(query: str) -> str:
     return "Nicht in Semantic Scholar verifiziert."
 
 def search_arxiv(query: str) -> str:
-    """Sucht auf arXiv.org nach Preprints und aktuellen Forschungsarbeiten."""
     url = f"http://export.arxiv.org/api/query?search_query=all:{requests.utils.quote(query)}&max_results=2"
     try:
         response = requests.get(url, timeout=5)
@@ -60,7 +58,6 @@ def search_arxiv(query: str) -> str:
     return "Nicht auf arXiv verifiziert."
 
 def call_gemini(prompt: str) -> str:
-    """Ruft Gemini direkt über die offizielle REST-API auf."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"
     headers = {"Content-Type": "application/json"}
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -86,22 +83,25 @@ def initialize_work():
     if not bibliography:
         return jsonify({"error": "Literaturverzeichnis fehlt."}), 400
 
-    # Literaturverzeichnis-Check (alle Einträge)
-    bib_entries = [entry.strip() for entry in bibliography.split('\n\n') if len(entry.strip()) > 10]
+    # Verbesserter Parser: Erkennt zusammenhängende Zitationen besser
+    # Wir trennen an Doppelumbrüchen oder nummerierten Aufzählungen (z.B. [1] oder 1.)
+    raw_entries = re.split(r'\n\s*\n|(?=\n\s*(?:\[\d+\]|\d+\.))', bibliography)
+    bib_entries = [e.strip().replace('\n', ' ') for e in raw_entries if len(e.strip()) > 15]
+    
     if len(bib_entries) <= 1:
         bib_entries = [line.strip() for line in bibliography.split('\n') if len(line.strip()) > 15]
 
     checked_sources = []
     for entry in bib_entries:
-        clean_query = entry.replace('\n', ' ')[:80]
+        clean_query = entry[:80]
         pm = search_pubmed(clean_query)
         s2 = search_semanticscholar(clean_query)
         arxiv_res = search_arxiv(clean_query)
         
         if "Nicht gefunden" not in pm or "Nicht gefunden" not in s2 or "Nicht gefunden" not in arxiv_res:
-            checked_sources.append(f"✓ Valide: {entry.replace(chr(10), ' ')}")
+            checked_sources.append(f"✓ Valide: {entry}")
         else:
-            checked_sources.append(f"⚠ Potenziell unbestätigt/Fake: {entry.replace(chr(10), ' ')}")
+            checked_sources.append(f"⚠ Potenziell unbestätigt/Fake: {entry}")
 
     prompt_init = (
         f"Du bist ein wissenschaftlicher Prüfungsausschuss. Analysiere das Inhaltsverzeichnis und den bisherigen Textstand.\n\n"
@@ -111,10 +111,14 @@ def initialize_work():
     )
     analysis = call_gemini(prompt_init)
 
+    # Kombiniere Struktur und das komplette Literaturverzeichnis zu einem mächtigen Gesamtkontext
+    full_context = f"--- STRUKTUR & IST-STAND ---\n{analysis}\n\n--- VOLLSTÄNDIGES LITERATURVERZEICHNIS DER ARBEIT ---\n{bibliography}"
+
     return jsonify({
         "status": "success",
         "bibliography_check": checked_sources,
-        "structural_analysis": analysis
+        "structural_analysis": analysis,
+        "full_context": full_context
     }), 200
 
 @app.route('/evaluate', methods=['POST'])
@@ -136,8 +140,8 @@ def evaluate():
         res_a = call_gemini(prompt_a)
 
         prompt_b = (
-            f"Wissenschaftlicher Reviewer. Prüfe den Faktengehalt des Absatzes im Licht der Gesamtarbeit.\n\n"
-            f"Hintergrund & Struktur der Gesamtarbeit:\n{context_summary}\n\n"
+            f"Wissenschaftlicher Reviewer. Prüfe den Faktengehalt des Absatzes im Licht der Gesamtarbeit und des übergebenen Literaturverzeichnisses.\n\n"
+            f"Gesamtkontext & Literatur:\n{context_summary}\n\n"
             f"Aktueller Absatz:\n{paragraph}\n\n"
             f"Live-Datenbank Evidenz:\n{pubmed_res}\n{s2_res}\n{arxiv_res}"
         )
@@ -146,6 +150,7 @@ def evaluate():
         prompt_c = (
             f"Prüfungsvorsitzender. Erstelle das finale Gutachten als reines JSON:\n"
             f"Absatz: {paragraph}\n\nLektorat: {res_a}\n\nFachprüfung: {res_b}\n\n"
+            "WICHTIG für 'ueberarbeiteter_absatz': Markiere geänderte oder neu formulierte Textstellen unbedingt mit HTML-Leuchtstift-Tags wie <span class=\"highlight\">geänderter Text</span>.\n\n"
             "Antworte AUSSCHLIESSLICH im Format:\n"
             "{\n"
             '  "gesamtnote_tendenz": "string",\n'

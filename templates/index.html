@@ -14,18 +14,22 @@
         button { background: #003366; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 4px; cursor: pointer; margin-top: 15px; font-weight: bold; transition: background 0.3s; }
         button:hover { background: #002244; }
         
+        .btn-secondary { background: #6c757d; margin-left: 10px; }
+        .btn-secondary:hover { background: #5a6268; }
+
         #status-box { background: #e6f4ea; border: 1px solid #ceead6; padding: 15px; border-radius: 4px; margin-bottom: 20px; display: none; }
         .scrollable-box { max-height: 250px; overflow-y: auto; background: #fff; padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin-top: 5px; }
         
         .result-box { background: #fff; border: 1px solid #ccc; padding: 20px; margin-top: 20px; border-radius: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
         .badge { background: #e1dfdd; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
         
-        /* Split Screen für Vergleich */
         .comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px; }
-        .comparison-col { padding: 15px; border-radius: 6px; border: 1px solid #ccc; }
-        .col-original { background: #fdf6ec; border-color: #f0d3b7; } /* Sanftes Beige */
-        .col-improved { background: #f0f4f8; border-color: #bce0fd; } /* Sanftes Blau */
-        .highlight { background-color: #fff3cd; padding: 2px 4px; border-radius: 2px; border-bottom: 2px solid #ffeeba; } /* Gelber Leuchtstift */
+        .comparison-col { padding: 15px; border-radius: 6px; border: 1px solid #ccc; line-height: 1.6; }
+        .col-original { background: #fdf6ec; border-color: #f0d3b7; }
+        .col-improved { background: #f0f4f8; border-color: #bce0fd; }
+        
+        /* Gelber Leuchtstift für geänderte Textstellen */
+        .highlight { background-color: #fff3cd; padding: 2px 4px; border-radius: 2px; border-bottom: 2px solid #ffeeba; font-weight: 500; }
     </style>
 </head>
 <body>
@@ -61,7 +65,8 @@
         <label>Aktueller Absatz zur Prüfung:</label>
         <textarea id="paragraph" placeholder="Kopiere hier den aktuellen Absatz hinein..."></textarea>
 
-        <button onclick="evaluateParagraph()">Absatz evaluieren</button>
+        <button id="eval-btn" onclick="evaluateParagraph()">Absatz evaluieren</button>
+        <button id="next-btn" class="btn-secondary" onclick="clearParagraph()" style="display:none;">Nächsten Absatz eingeben</button>
     </div>
 
     <div id="result-container"></div>
@@ -81,7 +86,6 @@
             return;
         }
 
-        // Dynamischer Button: Arbeit läuft (Gold)
         btn.innerText = "Arbeit wird initialisiert & Literatur wird geprüft...";
         btn.style.backgroundColor = "#FFD700";
         btn.style.color = "#000";
@@ -104,23 +108,23 @@
                 btn.style.color = "#fff";
                 return;
             }
-            globalContextSummary = data.structural_analysis;
+            globalContextSummary = data.full_context;
             
-            // Literatur-Check Box befüllen
             let bibHtml = "<ul>";
             data.bibliography_check.forEach(item => { bibHtml += `<li>${item}</li>`; });
             bibHtml += "</ul>";
             document.getElementById('status-content').innerHTML = bibHtml;
             
-            // Struktur-Box befüllen (jetzt scrollbar!)
-            document.getElementById('structure-content').innerHTML = `<p>${data.structural_analysis.replace(/\n/g, '<br>')}</p>`;
+            // Markdown-Fettung in sauberes HTML umwandeln und anzeigen
+            let formattedStructure = data.structural_analysis
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/\n/g, '<br>');
+            document.getElementById('structure-content').innerHTML = formattedStructure;
             
-            // Dynamischer Button: Erfolg (Grün)
             btn.innerText = "Arbeit wurde initialisiert & die Literatur geprüft.";
             btn.style.backgroundColor = "#6dde78";
             btn.style.color = "#000";
 
-            // Aktiviere Phase 2
             document.getElementById('evaluation-section').style.opacity = "1";
             document.getElementById('evaluation-section').style.pointerEvents = "auto";
         })
@@ -134,13 +138,20 @@
 
     function evaluateParagraph() {
         const paragraph = document.getElementById('paragraph').value;
+        const evalBtn = document.getElementById('eval-btn');
+        const nextBtn = document.getElementById('next-btn');
+
         if (!paragraph) {
             alert("Bitte gib einen Absatz ein.");
             return;
         }
 
+        evalBtn.innerText = "Analysiere Absatz im Gesamtkontext...";
+        evalBtn.style.backgroundColor = "#FFD700";
+        evalBtn.style.color = "#000";
+
         const resContainer = document.getElementById('result-container');
-        resContainer.innerHTML = "<p><em>Analysiere Absatz im Gesamtkontext und gegen Datenbanken...</em></p>";
+        resContainer.innerHTML = "<p><em>Prüfe Fakten und Lektorat...</em></p>";
 
         fetch('/evaluate', {
             method: 'POST',
@@ -151,8 +162,17 @@
         .then(data => {
             if (data.error) {
                 resContainer.innerHTML = `<p style="color:red;">Fehler: ${data.error}</p>`;
+                evalBtn.innerText = "Absatz evaluieren";
+                evalBtn.style.backgroundColor = "#003366";
+                evalBtn.style.color = "#fff";
                 return;
             }
+
+            evalBtn.innerText = "Absatz erfolgreich evaluiert";
+            evalBtn.style.backgroundColor = "#6dde78";
+            evalBtn.style.color = "#000";
+            
+            nextBtn.style.display = "inline-block";
 
             let html = `<div class="result-box">
                 <h3>Gutachten (Tendenz: <span style="color:#003366;">${data.gesamtnote_tendenz}</span>)</h3>`;
@@ -169,7 +189,6 @@
                 html += "<p>Keine nennenswerten Mängel im Absatz gefunden.</p>";
             }
 
-            // Split-Screen Vergleich (Beige vs. Blau mit Leuchtstift-Marker)
             html += `<h4>Vergleich & Textoptimierung:</h4>
                      <div class="comparison-grid">
                         <div class="comparison-col col-original">
@@ -187,7 +206,23 @@
         })
         .catch(err => {
             resContainer.innerHTML = `<p style="color:red;">Netzwerkfehler: ${err}</p>`;
+            evalBtn.innerText = "Absatz evaluieren";
+            evalBtn.style.backgroundColor = "#003366";
+            evalBtn.style.color = "#fff";
         });
+    }
+
+    function clearParagraph() {
+        document.getElementById('paragraph').value = "";
+        document.getElementById('result-container').innerHTML = "";
+        
+        const evalBtn = document.getElementById('eval-btn');
+        evalBtn.innerText = "Absatz evaluieren";
+        evalBtn.style.backgroundColor = "#003366";
+        evalBtn.style.color = "#fff";
+        
+        document.getElementById('next-btn').style.display = "none";
+        document.getElementById('paragraph').focus();
     }
 </script>
 </body>
