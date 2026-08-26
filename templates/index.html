@@ -1,1 +1,140 @@
-<!DOCTYPE html><html lang="de"><head><meta charset="UTF-8"><title>Thesis Reviewer</title><style>body{font-family:sans-serif;max-width:900px;margin:20px auto;padding:20px;line-height:1.6}textarea{width:100%;height:200px;padding:10px;margin-bottom:10px}button{padding:10px 20px;background-color:#007bff;color:white;border:none;cursor:pointer}#results{margin-top:30px;border-top:2px solid #eee;padding-top:20px}.critique{background:#f9f9f9;padding:15px;border-left:5px solid #007bff;margin-bottom:10px}.revised{background:#e7f3ff;padding:15px;border:1px solid #b3d7ff;white-space:pre-wrap}</style></head><body><h1>Master-Thesis Evaluator</h1><p>Fügen Sie hier ein Kapitel oder einen Absatz ein:</p><textarea id="inputText" placeholder="Text hier einfügen..."></textarea><button onclick="startReview()">Evaluierung starten</button><div id="results" style="display:none"></div><script>async function startReview(){const text=document.getElementById('inputText').value;const resDiv=document.getElementById('results');if(!text)return alert('Bitte Text eingeben');resDiv.style.display='block';resDiv.innerHTML='Prüfung läuft... Bitte warten (Agenten A, B und C arbeiten)...';try{const response=await fetch('/evaluate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text})});const data=await response.json();let critiqueHtml='';data.kritikpunkte.forEach(item=>{critiqueHtml+=`<div class="critique"><strong>${item.kategorie}</strong><br><em>\"${item.original_zitat}\"</em><br>${item.kritikpunkt}<br><small>Evidenz: ${item.evidenz_nachweis}</small></div>`});resDiv.innerHTML=`<h2>Gutachten</h2><p><strong>Tendenz:</strong> ${data.gesamtnote_tendenz}</p>${critiqueHtml}<h3>Überarbeiteter Vorschlag:</h3><div class="revised">${data.ueberarbeiteter_absatz}</div>`}catch(error){resDiv.innerHTML='Fehler bei der Verarbeitung. Prüfen Sie die Konsole.';console.error(error)}}</script></body></html>
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <title>Thesis Reviewer</title>
+    <style>
+        body { font-family: sans-serif; max-width: 1100px; margin: 20px auto; padding: 20px; line-height: 1.6; }
+        textarea { width: 100%; height: 300px; padding: 10px; margin-bottom: 10px; box-sizing: border-box; }
+        .button-group { margin-bottom: 20px; }
+        button { padding: 10px 20px; background-color: #007bff; color: white; border: none; cursor: pointer; margin-right: 10px; }
+        button.secondary { background-color: #6c757d; }
+        button:hover { opacity: 0.9; }
+        #results { margin-top: 30px; border-top: 2px solid #eee; padding-top: 20px; display: none; }
+        .critique { background: #f9f9f9; padding: 15px; border-left: 5px solid #007bff; margin-bottom: 10px; }
+        
+        /* 2-spaltiges Layout für den Vergleich */
+        .comparison-container {
+            display: flex;
+            gap: 20px;
+            margin-top: 10px;
+        }
+        .comparison-column {
+            flex: 1;
+            padding: 15px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            box-sizing: border-box;
+        }
+        .original-col {
+            background-color: #fdfbf7; /* Dezent beiger Hintergrund */
+            border-color: #e5dfd3;
+        }
+        .revised-col {
+            background-color: #e7f3ff;
+            border-color: #b3d7ff;
+        }
+        .column-title {
+            font-weight: bold;
+            margin-bottom: 10px;
+            display: block;
+            font-size: 0.95em;
+            color: #444;
+            border-bottom: 1px solid rgba(0,0,0,0.1);
+            padding-bottom: 5px;
+        }
+
+        /* Responsive Fallback bei schmaleren Bildschirmen */
+        @media (max-width: 768px) {
+            .comparison-container {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>Master-Thesis Evaluator</h1>
+    <p>Fügen Sie hier ein Kapitel oder einen Absatz ein:</p>
+    
+    <textarea id="inputText" placeholder="Text hier einfügen..."></textarea>
+    
+    <div class="button-group">
+        <button onclick="startReview()">Evaluierung starten</button>
+        <button class="secondary" onclick="resetInputs()">Neue Eingabe</button>
+    </div>
+
+    <div id="results"></div>
+
+    <script>
+        async function startReview() {
+            const text = document.getElementById('inputText').value;
+            const resDiv = document.getElementById('results');
+            
+            if (!text.trim()) {
+                alert('Bitte Text eingeben');
+                return;
+            }
+            
+            resDiv.style.display = 'block';
+            resDiv.innerHTML = 'Prüfung läuft... Bitte warten (Agenten A, B und C arbeiten)...';
+            
+            try {
+                const response = await fetch('/evaluate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text: text })
+                });
+                
+                const data = await response.json();
+                
+                if (response.status !== 200) {
+                    throw new Error(data.error || 'Unbekannter Serverfehler');
+                }
+
+                let critiqueHtml = '';
+                data.kritikpunkte.forEach(item => {
+                    critiqueHtml += `<div class="critique"><strong>${item.kategorie}</strong><br><em>\"${item.original_zitat}\"</em><br>${item.kritikpunkt}<br><small>Evidenz: ${item.evidenz_nachweis}</small></div>`;
+                });
+
+                resDiv.innerHTML = `
+                    <h2>Gutachten</h2>
+                    <p><strong>Tendenz:</strong> ${data.gesamtnote_tendenz}</p>
+                    ${critiqueHtml}
+                    <h3>Vergleich: Ursprungstext vs. Überarbeiteter Vorschlag</h3>
+                    <div class="comparison-container">
+                        <div class="comparison-column original-col">
+                            <span class="column-title">Originaltext</span>
+                            ${escapeHtml(text)}
+                        </div>
+                        <div class="comparison-column revised-col">
+                            <span class="column-title">Überarbeiteter Vorschlag</span>
+                            ${data.ueberarbeiteter_absatz}
+                        </div>
+                    </div>
+                `;
+            } catch (error) {
+                resDiv.innerHTML = 'Fehler bei der Verarbeitung: ' + error.message;
+                console.error(error);
+            }
+        }
+
+        function resetInputs() {
+            document.getElementById('inputText').value = '';
+            const resDiv = document.getElementById('results');
+            resDiv.style.display = 'none';
+            resDiv.innerHTML = '';
+        }
+
+        // Hilfsfunktion zur sicheren Darstellung von HTML im Originaltext
+        function escapeHtml(string) {
+            return string
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+    </script>
+</body>
+</html>
