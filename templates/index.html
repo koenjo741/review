@@ -5,48 +5,61 @@
     <title>Master-Thesis Review System</title>
     <style>
         body { font-family: Arial, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; color: #333; }
-        .container { max-width: 900px; margin: auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+        .container { max-width: 1000px; margin: auto; background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
         h1 { color: #003366; font-size: 24px; border-bottom: 2px solid #003366; padding-bottom: 10px; }
         .section { background: #fafbfc; border: 1px solid #e1e4e8; padding: 20px; border-radius: 6px; margin-bottom: 20px; }
         label { font-weight: bold; display: block; margin-top: 10px; color: #444; }
         textarea, input[type="text"] { width: 100%; padding: 10px; margin-top: 5px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-family: monospace; }
         textarea { height: 120px; }
-        button { background: #003366; color: white; border: none; padding: 10px 20px; font-size: 16px; border-radius: 4px; cursor: pointer; margin-top: 15px; }
+        button { background: #003366; color: white; border: none; padding: 12px 24px; font-size: 16px; border-radius: 4px; cursor: pointer; margin-top: 15px; font-weight: bold; transition: background 0.3s; }
         button:hover { background: #002244; }
+        
         #status-box { background: #e6f4ea; border: 1px solid #ceead6; padding: 15px; border-radius: 4px; margin-bottom: 20px; display: none; }
-        .result-box { background: #fff; border-left: 4px solid #003366; padding: 15px; margin-top: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
+        .scrollable-box { max-height: 250px; overflow-y: auto; background: #fff; padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin-top: 5px; }
+        
+        .result-box { background: #fff; border: 1px solid #ccc; padding: 20px; margin-top: 20px; border-radius: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
         .badge { background: #e1dfdd; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
+        
+        /* Split Screen für Vergleich */
+        .comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px; }
+        .comparison-col { padding: 15px; border-radius: 6px; border: 1px solid #ccc; }
+        .col-original { background: #fdf6ec; border-color: #f0d3b7; } /* Sanftes Beige */
+        .col-improved { background: #f0f4f8; border-color: #bce0fd; } /* Sanftes Blau */
+        .highlight { background-color: #fff3cd; padding: 2px 4px; border-radius: 2px; border-bottom: 2px solid #ffeeba; } /* Gelber Leuchtstift */
     </style>
 </head>
 <body>
 <div class="container">
     <h1>Master-Thesis Evaluator (Deep Context & Literatur-Check)</h1>
 
-    <!-- Phase 1: Onboarding / Gesamtkontext -->
+    <!-- Phase 1: Onboarding -->
     <div class="section" id="onboarding-section">
         <h3>Phase 1: Initialisierung & Quellenprüfung (Einmalig)</h3>
         <label>Inhaltsverzeichnis der Arbeit:</label>
         <textarea id="toc" placeholder="1. Einleitung&#10;2. Grundlagen&#10;3. Methodik..."></textarea>
 
         <label>Literaturverzeichnis (Vollständig):</label>
-        <textarea id="bibliography" placeholder="Müller, A. (2023): Titel der Arbeit...&#10;Schmidt, B. (2021)..."></textarea>
+        <textarea id="bibliography" placeholder="Müller, A. (2023): Titel der Arbeit...&#10;&#10;Schmidt, B. (2021)..."></textarea>
 
-        <label>Bisheriger Ist-Stand (Volltext-Auszug / bisherige Kapitel):</label>
-        <textarea id="draft_text" placeholder="Füge hier den bisher geschriebenen Text ein, damit der Agent weiß, was bereits existiert..."></textarea>
+        <label>Bisheriger Ist-Stand (Volltext-Ausschnitt / bisherige Kapitel):</label>
+        <textarea id="draft_text" placeholder="Füge hier den bisher geschriebenen Text ein..."></textarea>
 
-        <button onclick="initializeWork()">Arbeit initialisieren & Literatur prüfen</button>
+        <button id="init-btn" onclick="initializeWork()">Arbeit initialisieren & Literatur prüfen</button>
     </div>
 
     <div id="status-box">
         <strong>Status & Literatur-Prüfung:</strong>
-        <div id="status-content"></div>
+        <div id="status-content" class="scrollable-box"></div>
+        <hr style="margin-top: 15px; border:0; border-top:1px solid #ceead6;">
+        <strong>Struktur & Ist-Stand erfasst:</strong>
+        <div id="structure-content" class="scrollable-box"></div>
     </div>
 
     <!-- Phase 2: Agiles Absatz-Lektorat -->
     <div class="section" id="evaluation-section" style="opacity: 0.5; pointer-events: none;">
         <h3>Phase 2: Absatz-Lektorat (Kontinuierlich)</h3>
         <label>Aktueller Absatz zur Prüfung:</label>
-        <textarea id="paragraph" placeholder="Kopiere hier den aktuellen Absatz hinein, den du prüfen möchtest..."></textarea>
+        <textarea id="paragraph" placeholder="Kopiere hier den aktuellen Absatz hinein..."></textarea>
 
         <button onclick="evaluateParagraph()">Absatz evaluieren</button>
     </div>
@@ -61,14 +74,21 @@
         const toc = document.getElementById('toc').value;
         const bibliography = document.getElementById('bibliography').value;
         const draftText = document.getElementById('draft_text').value;
+        const btn = document.getElementById('init-btn');
 
         if (!bibliography) {
-            alert("Bitte gib zumindest das Literaturverzeichnis an.");
+            alert("Bitte gib das Literaturverzeichnis an.");
             return;
         }
 
+        // Dynamischer Button: Arbeit läuft (Gold)
+        btn.innerText = "Arbeit wird initialisiert & Literatur wird geprüft...";
+        btn.style.backgroundColor = "#FFD700";
+        btn.style.color = "#000";
+
         document.getElementById('status-box').style.display = 'block';
-        document.getElementById('status-content').innerText = "Prüfe Literatur und analysiere Struktur...";
+        document.getElementById('status-content').innerText = "Analysiere alle Literaturquellen über APIs...";
+        document.getElementById('structure-content').innerText = "Analysiere Struktur...";
 
         fetch('/initialize', {
             method: 'POST',
@@ -79,22 +99,36 @@
         .then(data => {
             if (data.error) {
                 alert(data.error);
+                btn.innerText = "Arbeit initialisieren & Literatur prüfen";
+                btn.style.backgroundColor = "#003366";
+                btn.style.color = "#fff";
                 return;
             }
             globalContextSummary = data.structural_analysis;
             
-            let html = "<ul>";
-            data.bibliography_check.forEach(item => { html += `<li>${item}</li>`; });
-            html += "</ul><hr><strong>Struktur & Ist-Stand erfasst:</strong><p>" + data.structural_analysis.substring(0, 300) + "...</p>";
+            // Literatur-Check Box befüllen
+            let bibHtml = "<ul>";
+            data.bibliography_check.forEach(item => { bibHtml += `<li>${item}</li>`; });
+            bibHtml += "</ul>";
+            document.getElementById('status-content').innerHTML = bibHtml;
             
-            document.getElementById('status-content').innerHTML = html;
+            // Struktur-Box befüllen (jetzt scrollbar!)
+            document.getElementById('structure-content').innerHTML = `<p>${data.structural_analysis.replace(/\n/g, '<br>')}</p>`;
             
+            // Dynamischer Button: Erfolg (Grün)
+            btn.innerText = "Arbeit wurde initialisiert & die Literatur geprüft.";
+            btn.style.backgroundColor = "#6dde78";
+            btn.style.color = "#000";
+
             // Aktiviere Phase 2
             document.getElementById('evaluation-section').style.opacity = "1";
             document.getElementById('evaluation-section').style.pointerEvents = "auto";
         })
         .catch(err => {
             alert("Fehler bei der Initialisierung: " + err);
+            btn.innerText = "Arbeit initialisieren & Literatur prüfen";
+            btn.style.backgroundColor = "#003366";
+            btn.style.color = "#fff";
         });
     }
 
@@ -135,8 +169,18 @@
                 html += "<p>Keine nennenswerten Mängel im Absatz gefunden.</p>";
             }
 
-            html += `<h4>Vorschlag für den überarbeiteten Absatz:</h4>
-                     <p style="background:#f8f9fa; padding:10px; border-left:3px solid #28a745;">${data.ueberarbeiteter_absatz}</p>
+            // Split-Screen Vergleich (Beige vs. Blau mit Leuchtstift-Marker)
+            html += `<h4>Vergleich & Textoptimierung:</h4>
+                     <div class="comparison-grid">
+                        <div class="comparison-col col-original">
+                            <strong>Originaler Absatz:</strong>
+                            <p>${paragraph}</p>
+                        </div>
+                        <div class="comparison-col col-improved">
+                            <strong>Optimierter Vorschlag:</strong>
+                            <p>${data.ueberarbeiteter_absatz}</p>
+                        </div>
+                     </div>
                      </div>`;
 
             resContainer.innerHTML = html;
