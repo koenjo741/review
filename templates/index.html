@@ -20,6 +20,10 @@
         #status-box { background: #e6f4ea; border: 1px solid #ceead6; padding: 15px; border-radius: 4px; margin-bottom: 20px; display: none; }
         .scrollable-box { max-height: 250px; overflow-y: auto; background: #fff; padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin-top: 5px; }
         
+        /* Einzeilige, hart rechts abgeschnittene Zitate */
+        .bib-item { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; font-size: 14px; font-family: monospace; }
+        .bib-warning { color: #d9534f; font-weight: bold; white-space: normal; margin-bottom: 10px; }
+
         .result-box { background: #fff; border: 1px solid #ccc; padding: 20px; margin-top: 20px; border-radius: 6px; box-shadow: 0 2px 5px rgba(0,0,0,0.05); }
         .badge { background: #e1dfdd; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
         
@@ -28,7 +32,6 @@
         .col-original { background: #fdf6ec; border-color: #f0d3b7; }
         .col-improved { background: #f0f4f8; border-color: #bce0fd; }
         
-        /* Gelber Leuchtstift für geänderte Textstellen */
         .highlight { background-color: #fff3cd; padding: 2px 4px; border-radius: 2px; border-bottom: 2px solid #ffeeba; font-weight: 500; }
     </style>
 </head>
@@ -43,7 +46,7 @@
         <textarea id="toc" placeholder="1. Einleitung&#10;2. Grundlagen&#10;3. Methodik..."></textarea>
 
         <label>Literaturverzeichnis (Vollständig):</label>
-        <textarea id="bibliography" placeholder="Müller, A. (2023): Titel der Arbeit...&#10;&#10;Schmidt, B. (2021)..."></textarea>
+        <textarea id="bibliography" placeholder="1. Müller, A. (2023): Titel...&#10;&#10;2. Schmidt, B. (2021)..."></textarea>
 
         <label>Bisheriger Ist-Stand (Volltext-Ausschnitt / bisherige Kapitel):</label>
         <textarea id="draft_text" placeholder="Füge hier den bisher geschriebenen Text ein..."></textarea>
@@ -110,12 +113,18 @@
             }
             globalContextSummary = data.full_context;
             
-            let bibHtml = "<ul>";
-            data.bibliography_check.forEach(item => { bibHtml += `<li>${item}</li>`; });
-            bibHtml += "</ul>";
+            // Nummerierte, einzeilige, hart abgeschnittene Zitate generieren
+            let bibHtml = "";
+            data.bibliography_check.forEach(item => {
+                if (item.status === "valide") {
+                    bibHtml += `<div class="bib-item" title="${item.text}">✓ Valide: [${item.id}] ${item.text}</div>`;
+                } else {
+                    bibHtml += `<div class="bib-item" style="color:#d9534f;" title="${item.text}">⚠ Nicht verifiziert: [${item.id}] ${item.text}</div>`;
+                    bibHtml += `<div class="bib-warning">↳ Grund: ${item.reason}</div>`;
+                }
+            });
             document.getElementById('status-content').innerHTML = bibHtml;
             
-            // Markdown-Fettung in sauberes HTML umwandeln und anzeigen
             let formattedStructure = data.structural_analysis
                 .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                 .replace(/\n/g, '<br>');
@@ -222,7 +231,7 @@
         evalBtn.style.color = "#fff";
         
         document.getElementById('next-btn').style.display = "none";
-        document.getElementById('paragraph').focus();
+        document.getElementById('paragraph'].focus();
     }
 </script>
 </body>

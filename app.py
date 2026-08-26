@@ -83,25 +83,27 @@ def initialize_work():
     if not bibliography:
         return jsonify({"error": "Literaturverzeichnis fehlt."}), 400
 
-    # Verbesserter Parser: Erkennt zusammenhängende Zitationen besser
-    # Wir trennen an Doppelumbrüchen oder nummerierten Aufzählungen (z.B. [1] oder 1.)
     raw_entries = re.split(r'\n\s*\n|(?=\n\s*(?:\[\d+\]|\d+\.))', bibliography)
     bib_entries = [e.strip().replace('\n', ' ') for e in raw_entries if len(e.strip()) > 15]
-    
     if len(bib_entries) <= 1:
         bib_entries = [line.strip() for line in bibliography.split('\n') if len(line.strip()) > 15]
 
     checked_sources = []
-    for entry in bib_entries:
+    for idx, entry in enumerate(bib_entries, start=1):
         clean_query = entry[:80]
         pm = search_pubmed(clean_query)
         s2 = search_semanticscholar(clean_query)
         arxiv_res = search_arxiv(clean_query)
         
         if "Nicht gefunden" not in pm or "Nicht gefunden" not in s2 or "Nicht gefunden" not in arxiv_res:
-            checked_sources.append(f"✓ Valide: {entry}")
+            checked_sources.append({"id": idx, "status": "valide", "text": entry})
         else:
-            checked_sources.append(f"⚠ Potenziell unbestätigt/Fake: {entry}")
+            checked_sources.append({
+                "id": idx, 
+                "status": "warning", 
+                "text": entry, 
+                "reason": "In keiner akademischen Datenbank (PubMed, Semantic Scholar, arXiv) eindeutig verifiziert. Mögliche Fake-Quelle oder Tippfehler."
+            })
 
     prompt_init = (
         f"Du bist ein wissenschaftlicher Prüfungsausschuss. Analysiere das Inhaltsverzeichnis und den bisherigen Textstand.\n\n"
@@ -110,8 +112,6 @@ def initialize_work():
         f"Gleiche das Inhaltsverzeichnis mit dem Ist-Stand ab und definiere präzise, welche Kapitel bereits geschrieben sind und welche noch fehlen."
     )
     analysis = call_gemini(prompt_init)
-
-    # Kombiniere Struktur und das komplette Literaturverzeichnis zu einem mächtigen Gesamtkontext
     full_context = f"--- STRUKTUR & IST-STAND ---\n{analysis}\n\n--- VOLLSTÄNDIGES LITERATURVERZEICHNIS DER ARBEIT ---\n{bibliography}"
 
     return jsonify({
@@ -140,7 +140,7 @@ def evaluate():
         res_a = call_gemini(prompt_a)
 
         prompt_b = (
-            f"Wissenschaftlicher Reviewer. Prüfe den Faktengehalt des Absatzes im Licht der Gesamtarbeit und des übergebenen Literaturverzeichnisses.\n\n"
+            f"Wissenschaftlicher Reviewer. Prüfe den Faktengehalt des Absatzes im Licht der Gesamtarbeit und des Literaturverzeichnisses.\n\n"
             f"Gesamtkontext & Literatur:\n{context_summary}\n\n"
             f"Aktueller Absatz:\n{paragraph}\n\n"
             f"Live-Datenbank Evidenz:\n{pubmed_res}\n{s2_res}\n{arxiv_res}"
@@ -150,16 +150,19 @@ def evaluate():
         prompt_c = (
             f"Prüfungsvorsitzender. Erstelle das finale Gutachten als reines JSON:\n"
             f"Absatz: {paragraph}\n\nLektorat: {res_a}\n\nFachprüfung: {res_b}\n\n"
-            "WICHTIG für 'ueberarbeiteter_absatz': Markiere geänderte oder neu formulierte Textstellen unbedingt mit HTML-Leuchtstift-Tags wie <span class=\"highlight\">geänderter Text</span>.\n\n"
+            f"WICHTIG SPRACHREGEL: Erkenne die Sprache des Originalabsatzes ({paragraph[:40]}...). "
+            f"Der 'ueberarbeiteter_absatz' MUSS AUSNAHMSLOS IN DERSELBEN SPRACHLICHEN URSPRUNGSSPRACHE bleiben (Deutsch bleibt Deutsch, Englisch bleibt Englisch)! "
+            f"Keine automatische Übersetzung in eine andere Sprache!\n\n"
+            f"Markiere korrigierte oder optimierte Textstellen im 'ueberarbeiteter_absatz' unbedingt mit HTML-Leuchtstift-Tags wie <span class=\"highlight\">optimierter Text</span>.\n\n"
             "Antworte AUSSCHLIESSLICH im Format:\n"
             "{\n"
             '  "gesamtnote_tendenz": "string",\n'
             '  "kritikpunkte": [\n'
             "    {\n"
-            '      "kategorie": "Stil/Logik oder Fachliche Evidenz",\n'
-            '      "original_zitat": "string",\n'
-            '      "kritikpunkt": "string",\n'
-            '      "evidenz_nachweis": "string"\n'
+            '      \"kategorie\": \"Stil/Logik oder Fachliche Evidenz\",\n'
+            '      \"original_zitat\": \"string\",\n'
+            '      \"kritikpunkt\": \"string\",\n'
+            '      \"evidenz_nachweis\": \"string\"\n'
             "    }\n"
             "  ],\n"
             '  "ueberarbeiteter_absatz": "string"\n'
