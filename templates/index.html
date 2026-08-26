@@ -5,11 +5,41 @@
     <title>Thesis Reviewer</title>
     <style>
         body { font-family: sans-serif; max-width: 1100px; margin: 20px auto; padding: 20px; line-height: 1.6; }
-        textarea { width: 100%; height: 300px; padding: 10px; margin-bottom: 10px; box-sizing: border-box; }
-        .button-group { margin-bottom: 20px; }
-        button { padding: 10px 20px; background-color: #007bff; color: white; border: none; cursor: pointer; margin-right: 10px; }
+        
+        /* Kombiniertes Eingabefeld für Text und Bilder (contenteditable) */
+        #inputContainer { 
+            width: 100%; 
+            min-height: 350px; 
+            max-height: 600px;
+            overflow-y: auto;
+            padding: 15px; 
+            margin-bottom: 10px; 
+            box-sizing: border-box; 
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            background-color: #fff;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        #inputContainer:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 5px rgba(0,123,255,0.3);
+        }
+        #inputContainer img {
+            max-width: 100%;
+            height: auto;
+            display: block;
+            margin: 10px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .button-group { margin-bottom: 20px; display: flex; gap: 10px; flex-wrap: wrap; }
+        button { padding: 10px 20px; background-color: #007bff; color: white; border: none; cursor: pointer; }
         button.secondary { background-color: #6c757d; }
         button:hover { opacity: 0.9; }
+        
         #results { margin-top: 30px; border-top: 2px solid #eee; padding-top: 20px; display: none; }
         .critique { background: #f9f9f9; padding: 15px; border-left: 5px solid #007bff; margin-bottom: 10px; }
         
@@ -28,7 +58,7 @@
             box-sizing: border-box;
         }
         .original-col {
-            background-color: #fdfbf7; /* Dezent beiger Hintergrund */
+            background-color: #fdfbf7;
             border-color: #e5dfd3;
         }
         .revised-col {
@@ -45,7 +75,6 @@
             padding-bottom: 5px;
         }
 
-        /* Responsive Fallback bei schmaleren Bildschirmen */
         @media (max-width: 768px) {
             .comparison-container {
                 flex-direction: column;
@@ -55,9 +84,10 @@
 </head>
 <body>
     <h1>Master-Thesis Evaluator</h1>
-    <p>Fügen Sie hier ein Kapitel oder einen Absatz ein:</p>
+    <p>Fügen Sie hier Text, Absätze <strong>oder Fotos/Grafiken</strong> (per Copy-Paste / Drag & Drop) ein:</p>
     
-    <textarea id="inputText" placeholder="Text hier einfügen..."></textarea>
+    <!-- Editierbarer Container, der Text & Bilder unterstützt -->
+    <div id="inputContainer" contenteditable="true" placeholder="Text oder Bild hier per Strg+V einfügen..."></div>
     
     <div class="button-group">
         <button onclick="startReview()">Evaluierung starten</button>
@@ -68,22 +98,42 @@
 
     <script>
         async function startReview() {
-            const text = document.getElementById('inputText').value;
-            const resDiv = document.getElementById('results');
+            const container = document.getElementById('inputContainer');
+            const text = container.innerText.trim();
             
-            if (!text.trim()) {
-                alert('Bitte Text eingeben');
+            // Prüfen, ob ein Bild im Container eingefügt wurde
+            const imgElement = container.querySelector('img');
+            let imageBase64 = null;
+            let mimeType = "image/png";
+
+            if (imgElement) {
+                // Konvertiert das Bild-Element in Base64 für den API-Versand
+                const base64Data = imgElement.src;
+                if (base64Data.startsWith('data:')) {
+                    const parts = base64Data.split(',');
+                    mimeType = parts[0].match(/:(.*?);/)[1];
+                    imageBase64 = parts[1];
+                }
+            }
+
+            if (!text && !imageBase64) {
+                alert('Bitte Text oder ein Bild eingeben');
                 return;
             }
             
+            const resDiv = document.getElementById('results');
             resDiv.style.display = 'block';
-            resDiv.innerHTML = 'Prüfung läuft... Bitte warten (Agenten A, B und C arbeiten)...';
+            resDiv.innerHTML = 'Prüfung läuft... Bitte warten (Agenten A, B und C analysieren Text/Grafik)...';
             
             try {
                 const response = await fetch('/evaluate', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ text: text })
+                    body: JSON.stringify({ 
+                        text: text, 
+                        image: imageBase64,
+                        mime_type: mimeType
+                    })
                 });
                 
                 const data = await response.json();
@@ -97,15 +147,21 @@
                     critiqueHtml += `<div class="critique"><strong>${item.kategorie}</strong><br><em>\"${item.original_zitat}\"</em><br>${item.kritikpunkt}<br><small>Evidenz: ${item.evidenz_nachweis}</small></div>`;
                 });
 
+                // Originalansicht im linken Kasten aufbauen (inkl. Bild, falls vorhanden)
+                let originalDisplayHtml = escapeHtml(text);
+                if (imgElement) {
+                    originalDisplayHtml += `<br><img src="${imgElement.src}" style="max-width:100%; margin-top:10px;">`;
+                }
+
                 resDiv.innerHTML = `
                     <h2>Gutachten</h2>
                     <p><strong>Tendenz:</strong> ${data.gesamtnote_tendenz}</p>
                     ${critiqueHtml}
-                    <h3>Vergleich: Ursprungstext vs. Überarbeiteter Vorschlag</h3>
+                    <h3>Vergleich: Ursprüngliche Eingabe vs. Überarbeiteter Vorschlag</h3>
                     <div class="comparison-container">
                         <div class="comparison-column original-col">
-                            <span class="column-title">Originaltext</span>
-                            ${escapeHtml(text)}
+                            <span class="column-title">Original (Text / Grafik)</span>
+                            <div>${originalDisplayHtml}</div>
                         </div>
                         <div class="comparison-column revised-col">
                             <span class="column-title">Überarbeiteter Vorschlag</span>
@@ -120,13 +176,12 @@
         }
 
         function resetInputs() {
-            document.getElementById('inputText').value = '';
+            document.getElementById('inputContainer').innerHTML = '';
             const resDiv = document.getElementById('results');
             resDiv.style.display = 'none';
             resDiv.innerHTML = '';
         }
 
-        // Hilfsfunktion zur sicheren Darstellung von HTML im Originaltext
         function escapeHtml(string) {
             return string
                 .replace(/&/g, "&amp;")
@@ -135,6 +190,6 @@
                 .replace(/"/g, "&quot;")
                 .replace(/'/g, "&#039;");
         }
-    </script>
+    </scrip
 </body>
 </html>

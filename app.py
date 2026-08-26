@@ -32,13 +32,24 @@ def search_pubmed(query: str) -> str:
     except Exception as e: 
         return f"PubMed Fehler: {str(e)}"
 
-def call_gemini(prompt: str) -> str:
-    """Ruft Gemini direkt über die offizielle REST-API auf (ohne SDK-Bloat)."""
+def call_gemini_multimodal(prompt: str, image_data: str = None, mime_type: str = "image/png") -> str:
+    """Ruft Gemini multimodal (Text + optionales Bild) über die REST-API auf."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"
     headers = {"Content-Type": "application/json"}
+    
+    parts = [{"text": prompt}]
+    if image_data:
+        parts.append({
+            "inline_data": {
+                "mime_type": mime_type,
+                "data": image_data
+            }
+        })
+        
     payload = {
-        "contents": [{"parts": [{"text": prompt}]}]
+        "contents": [{"parts": parts}]
     }
+    
     response = requests.post(url, headers=headers, json=payload, timeout=60)
     if response.status_code == 200:
         data = response.json()
@@ -57,36 +68,39 @@ def index():
 def evaluate():
     data = request.json
     text = data.get('text', '')
+    image_base64 = data.get('image', None)
+    mime_type = data.get('mime_type', 'image/png')
     
-    if not text:
-        return jsonify({"error": "Kein Text übergeben"}), 400
+    if not text and not image_base64:
+        return jsonify({"error": "Kein Text oder Bild übergeben"}), 400
 
     try:
-        # 1. PubMed Abfrage
-        pubmed_kontext = search_pubmed(text[:80])
+        # 1. PubMed Abfrage (falls Text vorhanden)
+        pubmed_kontext = search_pubmed(text[:80]) if text else "Kein Text für PubMed-Suche."
 
         # 2. Agent A: Lektorat
-        prompt_a = f"Du bist ein akademischer Lektor. Reviewe den Text auf Grammatik, Stil und Logik: {text}"
-        res_a_text = call_gemini(prompt_a)
+        prompt_a = f"Du bist ein akademischer Lektor. Reviewe den Text bzw. das Bild auf Grammatik, Stil, Layout und Logik:\nText: {text}"
+        res_a_text = call_gemini_multimodal(prompt_a, image_base64, mime_type)
 
         # 3. Agent B: Fachprüfung
         prompt_b = (
-            f"Du bist ein medizinischer Reviewer und Informatiker. Prüfe die Fakten im Text: {text}\n\n"
+            f"Du bist ein medizinischer Reviewer und Informatiker. Prüfe die Fakten im eingereichten Material:\n"
+            f"Text: {text}\n\n"
             f"Evidenz-Datenbankauszug:\n{pubmed_kontext}"
         )
-        res_b_text = call_gemini(prompt_b)
+        res_b_text = call_gemini_multimodal(prompt_b, image_base64, mime_type)
 
-        # 4. Agent C: JSON-Gutachten erzwingen (mit Sprachsteuerung & Gelbmarkierung für Änderungen)
+        # 4. Agent C: JSON-Gutachten erzwingen
         prompt_c = (
             f"Du bist der Prüfungsvorsitzende. Erstelle ein finales Gutachten basierend auf:\n"
             f"Originaltext: {text}\n\n"
             f"Lektorat: {res_a_text}\n\n"
             f"Fachprüfung: {res_b_text}\n\n"
             f"Anweisungen zur Sprachregelung:\n"
-            f"- Erkenne die Originalsprache des eingereichten Originaltextes (z. B. Englisch).\n"
-            f"- Die Felder 'gesamtnote_tendenz' und 'kritikpunkte' (Kategorie, Begründung etc.) müssen zwingend auf DEUTSCH verfasst werden.\n"
+            f"- Erkenne die Originalsprache des eingereichten Materials (z. B. Englisch).\n"
+            f"- Die Felder 'gesamtnote_tendenz' und 'kritikpunkte' müssen zwingend auf DEUTSCH verfasst werden.\n"
             f"- Das Feld 'ueberarbeiteter_absatz' muss strikt in der URSPRUNGSSPRACHE des Originaltextes verfasst werden.\n"
-            f"- Markiere in dem 'ueberarbeiteter_absatz' alle geänderten oder neu hinzugefügten Textstellen mit einem HTML-Tag gelb an, genau so: <mark style=\"background-color: #fff3cd; color: #856404;\">Textstelle</mark>.\n\n"
+            f"- Markiere in dem 'ueberarbeiteter_absatz' alle geänderten Textstellen gelb: <mark style=\"background-color: #fff3cd; color: #856404;\">Textstelle</mark>.\n\n"
             f"Antworte AUSSCHLIESSLICH im folgenden JSON-Format (ohne Markdown-Blocks):\n"
             "{\n"
             '  "gesamtnote_tendenz": "string",\n'
@@ -102,7 +116,7 @@ def evaluate():
             "}"
         )
         
-        raw_res = call_gemini(prompt_c).strip()
+        raw_res = call_gemini_multimodal(prompt_c, image_base64, mime_type).strip()
         
         # Markdown-Codeblöcke sicherheitshalber entfernen
         if raw_res.startswith("```"):
