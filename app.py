@@ -16,13 +16,16 @@ def call_gemini(prompt: str) -> str:
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"
     headers = {"Content-Type": "application/json"}
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
-    response = requests.post(url, headers=headers, json=payload, timeout=60)
-    if response.status_code == 200:
-        try:
-            return response.json()["candidates"][0]["content"]["parts"][0]["text"]
-        except Exception:
-            return "Fehler beim Parsen."
-    return f"API-Fehler: {response.status_code}"
+    try:
+        # Timeout auf 120 Sekunden erhöht für sehr große Literaturverzeichnisse
+        response = requests.post(url, headers=headers, json=payload, timeout=120)
+        if response.status_code == 200:
+            data = response.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        else:
+            return f"API-Fehler: {response.status_code} - {response.text}"
+    except Exception as e:
+        return f"Verbindungsfehler zu Gemini: {str(e)}"
 
 @app.route('/')
 def index():
@@ -30,74 +33,78 @@ def index():
 
 @app.route('/initialize', methods=['POST'])
 def initialize_work():
-    data = request.json
-    toc = data.get('toc', '')
-    bibliography = data.get('bibliography', '')
-    draft_text = data.get('draft_text', '')
+    try:
+        data = request.json
+        toc = data.get('toc', '')
+        bibliography = data.get('bibliography', '')
+        draft_text = data.get('draft_text', '')
 
-    if not bibliography:
-        return jsonify({"error": "Literaturverzeichnis fehlt."}), 400
+        if not bibliography:
+            return jsonify({"error": "Literaturverzeichnis fehlt."}), 400
 
-    # 1. LLM-basierter Literatur-Parser (Exakt nach deiner erfolgreichen Strategie)
-    parsing_prompt = (
-        "Du bist Lektor einer wissenschaftlichen Zeitschrift.\n"
-        "Überprüfe das folgende Literaturverzeichnis auf Korrektheit, Vollständigkeit und formale Fehler.\n\n"
-        "Antworte AUSSCHLIESSLICH zeilenweise im folgenden Format (ohne Markdown-Blocks):\n"
-        "STATUS (OK oder FLAG), Nummer des Zitates, gefolgt von den ersten 50 Zeichen des Zitates - Begründung (falls FLAG, ansonsten 'Valide').\n\n"
-        "Beispiel:\n"
-        "OK, 1, Rojas-Carabali W, Agrawal R - Valide\n"
-        "FLAG, 105, Regulation (EU) 2024/1689 - Tippfehler im Wort 'Parliment'\n\n"
-        f"Hier ist das Literaturverzeichnis:\n{bibliography}"
-    )
-    
-    parsed_bib_response = call_gemini(parsing_prompt)
+        # LLM-basierter Literatur-Parser
+        parsing_prompt = (
+            "Du bist Lektor einer wissenschaftlichen Zeitschrift.\n"
+            "Überprüfe das folgende Literaturverzeichnis auf Korrektheit, Vollständigkeit und formale Fehler.\n\n"
+            "Antworte AUSSCHLIESSLICH zeilenweise im folgenden Format (ohne Markdown-Blocks):\n"
+            "STATUS (OK oder FLAG), Nummer des Zitates, gefolgt von den ersten 50 Zeichen des Zitates - Begründung (falls FLAG, ansonsten 'Valide').\n\n"
+            "Beispiel:\n"
+            "OK, 1, Rojas-Carabali W, Agrawal R - Valide\n"
+            "FLAG, 105, Regulation (EU) 2024/1689 - Tippfehler im Wort 'Parliment'\n\n"
+            f"Hier ist das Literaturverzeichnis:\n{bibliography}"
+        )
+        
+        parsed_bib_response = call_gemini(parsing_prompt)
 
-    # Verarbeite die Zeilen für das Frontend
-    checked_sources = []
-    for line in parsed_bib_response.strip().split('\n'):
-        if not line.strip():
-            continue
-        parts = line.split(',', 2)
-        if len(parts) >= 2:
-            status = parts[0].strip().upper()
-            num = parts[1].strip()
-            rest = parts[2].strip() if len(parts) > 2 else ""
-            
-            is_valide = "OK" in status
-            checked_sources.append({
-                "id": num,
-                "status": "valide" if is_valide else "warning",
-                "text": rest,
-                "reason": rest if not is_valide else "Verifiziert und formal korrekt."
-            })
+        checked_sources = []
+        for line in parsed_bib_response.strip().split('\n'):
+            if not line.strip():
+                continue
+            parts = line.split(',', 2)
+            if len(parts) >= 2:
+                status = parts[0].strip().upper()
+                num = parts[1].strip()
+                rest = parts[2].strip() if len(parts) > 2 else ""
+                
+                is_valide = "OK" in status
+                checked_sources.append({
+                    "id": num,
+                    "status": "valide" if is_valide else "warning",
+                    "text": rest,
+                    "reason": rest if not is_valide else "Verifiziert und formal korrekt."
+                })
 
-    # 2. Struktur-Analyse des Inhaltsverzeichnisses & Ist-Standes
-    prompt_init = (
-        f"Du bist ein wissenschaftlicher Prüfungsausschuss. Analysiere das Inhaltsverzeichnis und den bisherigen Textstand.\n\n"
-        f"Inhaltsverzeichnis:\n{toc}\n\n"
-        f"Bisheriger Ist-Stand (Volltext-Ausschnitt):\n{draft_text}\n\n"
-        f"Gleiche das Inhaltsverzeichnis mit dem Ist-Stand ab und definiere präzise, welche Kapitel bereits geschrieben sind und welche noch fehlen."
-    )
-    analysis = call_gemini(prompt_init)
-    full_context = f"--- STRUKTUR & IST-STAND ---\n{analysis}\n\n--- VOLLSTÄNDIGES LITERATURVERZEICHNIS DER ARBEIT ---\n{bibliography}"
+        # Struktur-Analyse des Inhaltsverzeichnisses & Ist-Standes
+        prompt_init = (
+            f"Du bist ein wissenschaftlicher Prüfungsausschuss. Analysiere das Inhaltsverzeichnis und den bisherigen Textstand.\n\n"
+            f"Inhaltsverzeichnis:\n{toc}\n\n"
+            f"Bisheriger Ist-Stand (Volltext-Ausschnitt):\n{draft_text}\n\n"
+            f"Gleiche das Inhaltsverzeichnis mit dem Ist-Stand ab und definiere präzise, welche Kapitel bereits geschrieben sind und welche noch fehlen."
+        )
+        analysis = call_gemini(prompt_init)
+        full_context = f"--- STRUKTUR & IST-STAND ---\n{analysis}\n\n--- VOLLSTÄNDIGES LITERATURVERZEICHNIS DER ARBEIT ---\n{bibliography}"
 
-    return jsonify({
-        "status": "success",
-        "bibliography_check": checked_sources,
-        "structural_analysis": analysis,
-        "full_context": full_context
-    }), 200
+        return jsonify({
+            "status": "success",
+            "bibliography_check": checked_sources,
+            "structural_analysis": analysis,
+            "full_context": full_context
+        }), 200
+
+    except Exception as e:
+        # Fängt jeden unerwarteten Fehler ab und gibt sauberes JSON zurück, sodass kein HTML-SyntaxError entsteht
+        return jsonify({"error": f"Server-Fehler bei der Initialisierung: {str(e)}"}), 500
 
 @app.route('/evaluate', methods=['POST'])
 def evaluate():
-    data = request.json
-    paragraph = data.get('paragraph', '')
-    context_summary = data.get('context_summary', '')
-    
-    if not paragraph:
-        return jsonify({"error": "Kein Absatz übergeben"}), 400
-
     try:
+        data = request.json
+        paragraph = data.get('paragraph', '')
+        context_summary = data.get('context_summary', '')
+        
+        if not paragraph:
+            return jsonify({"error": "Kein Absatz übergeben"}), 400
+
         prompt_a = f"Akademischer Lektor. Reviewe den Absatz auf Grammatik, Stil und Logik:\n{paragraph}"
         res_a = call_gemini(prompt_a)
 
@@ -138,7 +145,7 @@ def evaluate():
         return jsonify(json.loads(raw_res)), 200
 
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": f"Server-Fehler bei der Evaluierung: {str(e)}"}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
