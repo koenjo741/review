@@ -12,12 +12,12 @@ app = Flask(__name__)
 PUBMED_EMAIL = "josef_koenig@hotmail.com"
 PUBMED_API_KEY = "2d6671c4cc19fcc9bf7c972e504abf763b09"
 
-# Zentraler Client (verhindert Mehrfach-Instanziierung und spart RAM)
+# Zentraler Client (verhindert RAM-Lecks und Mehrfach-Instanziierung)
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 client = genai.Client(api_key=GOOGLE_API_KEY)
 
 def search_pubmed(query: str) -> str:
-    """Sucht in PubMed nach medizinischer Evidenz."""
+    """Sucht direkt in PubMed nach medizinischer Evidenz."""
     Entrez.email = PUBMED_EMAIL
     Entrez.api_key = PUBMED_API_KEY
     try:
@@ -62,22 +62,27 @@ def evaluate():
         return jsonify({"error": "Kein Text übergeben"}), 400
 
     try:
-        # Agent A: Lektorat (Schnellmodell)
+        # 1. PubMed-Evidenz vorab stabil einholen (schont den RAM und verhindert Tool-Timeouts)
+        pubmed_kontext = search_pubmed(text[:100]) # Nutzt die ersten Zeichen als Suchanfrage
+
+        # 2. Agent A: Lektorat (Grammatik, Stil, Logik)
         prompt_a = f"Du bist ein akademischer Lektor. Reviewe den Text auf Grammatik, Stil und Logik: {text}"
         res_a = client.models.generate_content(model="gemini-2.5-flash", contents=prompt_a)
 
-        # Agent B: Fachprüfung mit PubMed-Tool (Pro-Modell)
-        prompt_b = f"Du bist ein medizinischer Reviewer und Informatiker. Prüfe die Fakten im Text: {text}. Nutze search_pubmed bei Bedarf."
-        chat = client.chats.create(
-            model="gemini-2.5-pro", 
-            config=types.GenerateContentConfig(
-                tools=[search_pubmed]
-            )
+        # 3. Agent B: Fachprüfung unter Einbeziehung der echten PubMed-Treffer
+        prompt_b = (
+            f"Du bist ein medizinischer Reviewer und Informatiker. Prüfe die Fakten im Text: {text}\n\n"
+            f"Gefundene PubMed-Evidenz zur Überprüfung:\n{pubmed_kontext}"
         )
-        res_b = chat.send_message(prompt_b)
+        res_b = client.models.generate_content(model="gemini-2.5-pro", contents=prompt_b)
 
-        # Agent C: Prüfungsvorsitz & JSON-Synthese
-        prompt_c = f"Du bist der Prüfungsvorsitzende. Original: {text}\n\nLektorat: {res_a.text}\n\nFachprüfung: {res_b.text}\n\nErstelle das finale Gutachten als JSON."
+        # 4. Agent C: Prüfungsvorsitz & finale JSON-Synthese
+        prompt_c = (
+            f"Du bist der Prüfungsvorsitzende. Originaltext: {text}\n\n"
+            f"Lektoratsergebnis: {res_a.text}\n\n"
+            f"Fachprüfungsergebnis: {res_b.text}\n\n"
+            f"Erstelle das finale Gutachten strikt als JSON."
+        )
         res_c = client.models.generate_content(
             model="gemini-2.5-pro", 
             contents=prompt_c, 
@@ -87,7 +92,6 @@ def evaluate():
             )
         )
         
-        # Direkte Rückgabe des JSON-Strings an das Frontend
         return res_c.text, 200, {'Content-Type': 'application/json'}
 
     except Exception as e:
