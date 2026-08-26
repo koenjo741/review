@@ -12,6 +12,7 @@ PUBMED_API_KEY = "2d6671c4cc19fcc9bf7c972e504abf763b09"
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 
 def search_pubmed(query: str) -> str:
+    """Sucht direkt in PubMed nach medizinischer Evidenz."""
     Entrez.email = PUBMED_EMAIL
     Entrez.api_key = PUBMED_API_KEY
     try:
@@ -29,6 +30,7 @@ def search_pubmed(query: str) -> str:
         return "Nicht in PubMed verifiziert."
 
 def search_semanticscholar(query: str) -> str:
+    """Sucht in der Semantic Scholar API nach wissenschaftlicher Evidenz."""
     url = f"https://api.semanticscholar.org/graph/v1/paper/search?query={requests.utils.quote(query)}&limit=2&fields=title,year"
     try:
         response = requests.get(url, timeout=5)
@@ -42,6 +44,7 @@ def search_semanticscholar(query: str) -> str:
     return "Nicht in Semantic Scholar verifiziert."
 
 def search_arxiv(query: str) -> str:
+    """Sucht auf arXiv.org nach Preprints und aktuellen Forschungsarbeiten."""
     url = f"http://export.arxiv.org/api/query?search_query=all:{requests.utils.quote(query)}&max_results=2"
     try:
         response = requests.get(url, timeout=5)
@@ -57,6 +60,7 @@ def search_arxiv(query: str) -> str:
     return "Nicht auf arXiv verifiziert."
 
 def call_gemini(prompt: str) -> str:
+    """Ruft Gemini direkt über die offizielle REST-API auf."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={GOOGLE_API_KEY}"
     headers = {"Content-Type": "application/json"}
     payload = {"contents": [{"parts": [{"text": prompt}]}]}
@@ -82,8 +86,8 @@ def initialize_work():
     if not bibliography:
         return jsonify({"error": "Literaturverzeichnis fehlt."}), 400
 
-    # Literaturverzeichnis-Check (Wir splten die Zeilen auf und prüfen stichprobenartig bzw. komplett)
-bib_lines = [line.strip() for line in bibliography.split('\n') if len(line.strip()) > 10]
+    # Literaturverzeichnis-Check (korrekt eingereicht)
+    bib_lines = [line.strip() for line in bibliography.split('\n') if len(line.strip()) > 10]
     checked_sources = []
     for entry in bib_lines[:10]:  # Prüft die ersten 10 Einträge, um Timeouts zu vermeiden
         pm = search_pubmed(entry[:50])
@@ -97,7 +101,7 @@ bib_lines = [line.strip() for line in bibliography.split('\n') if len(line.strip
     prompt_init = (
         f"Du bist ein wissenschaftlicher Prüfungsausschuss. Analysiere das Inhaltsverzeichnis und den bisherigen Textstand.\n\n"
         f"Inhaltsverzeichnis:\n{toc}\n\n"
-        f"Bisheriger Ist-Stand (Volltext-Auschnitt):\n{draft_text[:3000]}\n\n"
+        f"Bisheriger Ist-Stand (Volltext-Ausschnitt):\n{draft_text[:3000]}\n\n"
         f"Gleiche das Inhaltsverzeichnis mit dem Ist-Stand ab und definiere, welche Kapitel bereits geschrieben sind und welche noch fehlen, "
         f"damit der Lektor später weiß, dass fehlende Kapitel KEIN Fehler sind."
     )
