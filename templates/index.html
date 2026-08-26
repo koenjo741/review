@@ -20,7 +20,6 @@
         #status-box { background: #e6f4ea; border: 1px solid #ceead6; padding: 15px; border-radius: 4px; margin-bottom: 20px; display: none; }
         .scrollable-box { max-height: 250px; overflow-y: auto; background: #fff; padding: 10px; border: 1px solid #ccc; border-radius: 4px; margin-top: 5px; }
         
-        /* Einzeilige, hart rechts abgeschnittene Zitate */
         .bib-item { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; font-size: 14px; font-family: monospace; }
         .bib-warning { color: #d9534f; font-weight: bold; white-space: normal; margin-bottom: 10px; }
 
@@ -113,7 +112,6 @@
             }
             globalContextSummary = data.full_context;
             
-            // Nummerierte, einzeilige, hart abgeschnittene Zitate generieren
             let bibHtml = "";
             data.bibliography_check.forEach(item => {
                 if (item.status === "valide") {
@@ -231,7 +229,7 @@
         evalBtn.style.color = "#fff";
         
         document.getElementById('next-btn').style.display = "none";
-        document.getElementById('paragraph'].focus();
+        document.getElementById('paragraph').focus();
     }
 </script>
 </body>
