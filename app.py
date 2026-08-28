@@ -42,37 +42,42 @@ def initialize_work():
         if not bibliography:
             return jsonify({"error": "Literaturverzeichnis fehlt."}), 400
 
-        # LLM-basierter Literatur-Parser
-        parsing_prompt = (
-            "Du bist Lektor einer wissenschaftlichen Zeitschrift.\n"
-            "Überprüfe das folgende Literaturverzeichnis auf Korrektheit, Vollständigkeit und formale Fehler.\n\n"
-            "Antworte AUSSCHLIESSLICH zeilenweise im folgenden Format (ohne Markdown-Blocks):\n"
-            "STATUS (OK oder FLAG), Nummer des Zitates, gefolgt von den ersten 50 Zeichen des Zitates - Begründung (falls FLAG, ansonsten 'Valide').\n\n"
-            "Beispiel:\n"
-            "OK, 1, Rojas-Carabali W, Agrawal R - Valide\n"
-            "FLAG, 105, Regulation (EU) 2024/1689 - Tippfehler im Wort 'Parliment'\n\n"
-            f"Hier ist das Literaturverzeichnis:\n{bibliography}"
-        )
-        
-        parsed_bib_response = call_gemini(parsing_prompt)
+        # Literatur in handliche Chunks à ca. 80 Zeilen aufteilen, um Token-Limits und Abstürze zu verhindern
+        bib_lines = [line for line in bibliography.split('\n') if line.strip()]
+        chunk_size = 80
+        chunks = [bib_lines[i:i + chunk_size] for i in range(0, len(bib_lines), chunk_size)]
 
         checked_sources = []
-        for line in parsed_bib_response.strip().split('\n'):
-            if not line.strip():
-                continue
-            parts = line.split(',', 2)
-            if len(parts) >= 2:
-                status = parts[0].strip().upper()
-                num = parts[1].strip()
-                rest = parts[2].strip() if len(parts) > 2 else ""
-                
-                is_valide = "OK" in status
-                checked_sources.append({
-                    "id": num,
-                    "status": "valide" if is_valide else "warning",
-                    "text": rest,
-                    "reason": rest if not is_valide else "Verifiziert und formal korrekt."
-                })
+        global_id_counter = 1
+
+        for chunk in chunks:
+            chunk_text = "\n".join(chunk)
+            parsing_prompt = (
+                "Du bist Lektor einer wissenschaftlichen Zeitschrift.\n"
+                "Überprüfe das folgende Teilstück eines Literaturverzeichnisses auf Korrektheit und formale Fehler.\n\n"
+                "Antworte AUSSCHLIESSLICH zeilenweise im folgenden Format (ohne Markdown-Blocks):\n"
+                "STATUS (OK oder FLAG), Nummer (zähle fortlaufend im Dokument), gefolgt von den ersten 50 Zeichen des Zitates - Begründung (falls FLAG, ansonsten 'Valide').\n\n"
+                f"Hier ist das Teilstück:\n{chunk_text}"
+            )
+            
+            parsed_response = call_gemini(parsing_prompt)
+
+            for line in parsed_response.strip().split('\n'):
+                if not line.strip():
+                    continue
+                parts = line.split(',', 2)
+                if len(parts) >= 2:
+                    status = parts[0].strip().upper()
+                    rest = parts[2].strip() if len(parts) > 2 else ""
+                    
+                    is_valide = "OK" in status
+                    checked_sources.append({
+                        "id": global_id_counter,
+                        "status": "valide" if is_valide else "warning",
+                        "text": rest,
+                        "reason": rest if not is_valide else "Verifiziert und formal korrekt."
+                    })
+                    global_id_counter += 1
 
         # Struktur-Analyse des Inhaltsverzeichnisses & Ist-Standes
         prompt_init = (
@@ -92,7 +97,6 @@ def initialize_work():
         }), 200
 
     except Exception as e:
-        # Fängt jeden unerwarteten Fehler ab und gibt sauberes JSON zurück, sodass kein HTML-SyntaxError entsteht
         return jsonify({"error": f"Server-Fehler bei der Initialisierung: {str(e)}"}), 500
 
 @app.route('/evaluate', methods=['POST'])
