@@ -79,13 +79,18 @@ def initialize_work():
                     })
                     global_id_counter += 1
 
-        # Struktur-Analyse des Inhaltsverzeichnisses & Ist-Standes
+        # Struktur-Analyse des Inhaltsverzeichnisses & Ist-Standes mit den neuen erweiterten Kriterien
         prompt_init = (
-            f"Du bist ein wissenschaftlicher Prüfungsausschuss. Analysiere das Inhaltsverzeichnis und den bisherigen Textstand.\n\n"
+            f"Du bist ein strenger wissenschaftlicher Prüfungsausschuss. Analysiere das Inhaltsverzeichnis und den bisherigen Textstand.\n\n"
             f"Inhaltsverzeichnis:\n{toc}\n\n"
             f"Bisheriger Ist-Stand (Volltext-Ausschnitt):\n{draft_text}\n\n"
-            f"Gleiche das Inhaltsverzeichnis mit dem Ist-Stand ab und definiere präzise, welche Kapitel bereits geschrieben sind und welche noch fehlen."
+            f"Führe folgende Prüfungen durch:\n"
+            f"1. Gleiche das Inhaltsverzeichnis mit dem Ist-Stand ab und definiere präzise, welche Kapitel bereits geschrieben sind und welche noch fehlen.\n"
+            f"2. Prüfe, ob typische formale Bestandteile der Masterarbeit fehlen (z.B. Deckblatt, Eidesstattliche Erklärung, Abstract, Inhaltsverzeichnis, Research Questions, Methods, Results, Limitations, Discussion, Abbildungs-/Tabellen-/Abkürzungsverzeichnis).\n"
+            f"3. Überprüfe die innere Stringenz der Argumentation über die bisherigen Kapitel hinweg.\n"
+            f"4. Bewerte, ob der bisherige Text den aktuellen wissenschaftlichen Forschungsstand (State-of-the-Art) widerspiegelt."
         )
+        
         analysis = call_gemini(prompt_init)
         full_context = f"--- STRUKTUR & IST-STAND ---\n{analysis}\n\n--- VOLLSTÄNDIGES LITERATURVERZEICHNIS DER ARBEIT ---\n{bibliography}"
 
