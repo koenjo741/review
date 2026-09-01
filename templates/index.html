@@ -5,29 +5,32 @@
     <title>Master-Thesis Evaluator Pro v2.5</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; margin: 0; padding: 20px; }
-        .container { max-width: 1100px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
+        .container { max-width: 1000px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
         h1 { color: #003366; border-bottom: 3px solid #003366; padding-bottom: 10px; }
         .section { background: #fafbfc; border: 1px solid #e1e4e8; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
         .upload-zone { background: #eef2f7; border: 2px dashed #003366; text-align: center; padding: 30px; margin-bottom: 20px; border-radius: 8px; }
         textarea { width: 100%; height: 120px; padding: 10px; border-radius: 4px; border: 1px solid #ccc; box-sizing: border-box; margin-top: 5px; font-size: 13px; }
         button { background: #003366; color: white; border: none; padding: 12px 25px; font-size: 16px; border-radius: 5px; cursor: pointer; font-weight: bold; }
         button:hover { background: #002244; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
         #status-box { background: #e6f4ea; padding: 15px; border-radius: 8px; display: none; margin-top: 20px; }
         .scrollable { max-height: 200px; overflow-y: auto; background: white; padding: 10px; border: 1px solid #ddd; margin-top: 5px; font-family: monospace; font-size: 12px; }
-        .loading-overlay { display:none; color: #003366; font-weight: bold; margin: 10px 0; }
+        .comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
+        .col { padding: 15px; border-radius: 8px; border: 1px solid #ddd; background: #fff; line-height: 1.6; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Master-Thesis Evaluator <small>v2.5 (Optimized Extraction)</small></h1>
+    <h1>Master-Thesis Evaluator <small>v2.5 (Multi-Step Extraction)</small></h1>
 
     <div class="upload-zone">
-        <h3>Phase 0: PDF-Upload & Analyse</h3>
-        <p>Lade die Arbeit hoch. Die KI sucht gezielt nach Verzeichnissen und Textstellen.</p>
+        <h3>Phase 0: PDF-Upload</h3>
+        <p>Lade die Arbeit hoch. Die KI liest das Dokument in mehreren Schritten, um Fehler bei großen Dateien zu vermeiden.</p>
         <input type="file" id="pdf-file" accept="application/pdf">
+        <br><br>
         <button onclick="uploadPDF()" id="upload-btn">PDF analysieren & Felder füllen</button>
-        <div id="loading-msg" class="loading-overlay">Gemini liest 80+ Seiten... Bitte Geduld (ca. 20-40 Sek.)</div>
+        <p id="loading-msg" style="display:none; color:#003366; font-weight:bold;">KI liest 80+ Seiten... Bitte ca. 30-60 Sek. warten.</p>
     </div>
 
     <div class="section">
@@ -36,22 +39,22 @@
         <textarea id="toc"></textarea>
         <label>Literaturverzeichnis:</label>
         <textarea id="bibliography"></textarea>
-        <label>Text-Ausschnitt (Hauptteil):</label>
+        <label>Text-Ausschnitt:</label>
         <textarea id="draft_text"></textarea>
         <button onclick="initializeWork()" id="init-btn" style="margin-top:10px;">Arbeit validieren</button>
     </div>
 
     <div id="status-box">
-        <strong>Literatur-Check:</strong>
+        <strong>✓ Literatur-Check:</strong>
         <div id="bib-content" class="scrollable"></div>
         <br>
-        <strong>Struktur-Analyse:</strong>
-        <div id="struct-content" style="white-space: pre-wrap; font-size: 14px;"></div>
+        <strong>✓ Struktur-Analyse:</strong>
+        <div id="struct-content" style="white-space: pre-wrap;"></div>
     </div>
 
     <div class="section" id="eval-section" style="opacity:0.3; pointer-events:none;">
         <h3>Phase 2: Absatz-Lektorat</h3>
-        <textarea id="paragraph" placeholder="Kopiere einen Absatz hier hinein..."></textarea>
+        <textarea id="paragraph" placeholder="Absatz hier einfügen..."></textarea>
         <button onclick="evaluateParagraph()" id="eval-btn" style="margin-top:10px;">Prüfung starten</button>
     </div>
 
@@ -64,12 +67,11 @@
     async function uploadPDF() {
         const fileInput = document.getElementById('pdf-file');
         const btn = document.getElementById('upload-btn');
-        const loader = document.getElementById('loading-msg');
-        
+        const msg = document.getElementById('loading-msg');
         if(!fileInput.files[0]) return alert("Bitte PDF wählen.");
 
         btn.disabled = true;
-        loader.style.display = "block";
+        msg.style.display = "block";
         btn.innerText = "Analysiere...";
 
         const formData = new FormData();
@@ -78,14 +80,11 @@
         try {
             const response = await fetch('/process_pdf', { method: 'POST', body: formData });
             const data = await response.json();
-            
             if (!response.ok) throw new Error(data.error);
 
-            // Felder befüllen - wir prüfen ob Daten da sind
-            document.getElementById('toc').value = data.toc || "Nicht gefunden";
-            document.getElementById('bibliography').value = data.bibliography || "Nicht gefunden";
-            document.getElementById('draft_text').value = data.draft_text || "Nicht gefunden";
-            
+            document.getElementById('toc').value = data.toc || "";
+            document.getElementById('bibliography').value = data.bibliography || "";
+            document.getElementById('draft_text').value = data.draft_text || "";
             btn.innerText = "✓ PDF extrahiert";
             btn.style.background = "#28a745";
         } catch (e) {
@@ -94,7 +93,7 @@
             btn.style.background = "#dc3545";
         } finally {
             btn.disabled = false;
-            loader.style.display = "none";
+            msg.style.display = "none";
         }
     }
 
