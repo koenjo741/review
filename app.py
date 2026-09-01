@@ -11,67 +11,58 @@ app = Flask(__name__)
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 S2_API_KEY = os.environ.get("S2_API_KEY", "s2k-an3iWCohGVLwGyOWdzffZ9orI2E1ySNnp76Ojljo")
 
-def call_gemini_smart(prompt: str, pdf_data: bytes = None, is_json: bool = False) -> str:
+def call_gemini(prompt: str, pdf_data: bytes = None) -> str:
     """
-    Tag 12: Self-Healing API Call. 
-    Probiert verschiedene Endpunkte und Modelle, falls einer einen 404 liefert.
+    Diese Funktion nutzt exakt den Weg, der bei dir für die Literatur funktioniert hat:
+    Direkter POST-Request an den Google-Endpunkt.
     """
-    # Liste der stabilsten Modell-IDs für PDF-Analyse
-    models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-1.5-flash-latest"]
+    # Wir nutzen das stabilste Modell: gemini-1.5-flash
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GOOGLE_API_KEY}"
+    headers = {"Content-Type": "application/json"}
     
-    last_error = ""
+    parts = [{"text": prompt}]
     
-    for model_id in models_to_try:
-        # Wir nutzen v1beta, da dies für PDF (inline_data) am stabilsten ist
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_id}:generateContent?key={GOOGLE_API_KEY}"
-        headers = {"Content-Type": "application/json"}
-        
-        parts = [{"text": prompt}]
-        if pdf_data:
-            parts.append({
-                "inline_data": {
-                    "mime_type": "application/pdf",
-                    "data": base64.b64encode(pdf_data).decode('utf-8')
-                }
-            })
-
-        payload = {
-            "contents": [{"parts": parts}],
-            "generationConfig": {
-                "response_mime_type": "application/json" if is_json else "text/plain",
-                "temperature": 0.1
+    # Falls ein PDF vorhanden ist, hängen wir es als inline_data an (Tag 8)
+    if pdf_data:
+        parts.append({
+            "inline_data": {
+                "mime_type": "application/pdf",
+                "data": base64.b64encode(pdf_data).decode('utf-8')
             }
-        }
+        })
 
-        try:
-            response = requests.post(url, headers=headers, json=payload, timeout=120)
-            if response.status_code == 200:
-                return response.json()["candidates"][0]["content"]["parts"][0]["text"]
-            else:
-                last_error = f"Modell {model_id} meldet {response.status_code}: {response.text}"
-                continue # Nächstes Modell versuchen
-        except Exception as e:
-            last_error = str(e)
-            continue
-
-    raise Exception(f"Alle KI-Modelle sind fehlgeschlagen. Letzter Fehler: {last_error}")
-
-def clean_json_response(raw_text: str):
-    """Extrahiert JSON aus der Antwort, falls die KI Text drumherum baut."""
+    payload = {"contents": [{"parts": parts}]}
+    
     try:
-        # Entferne Markdown-Code-Blöcke
-        clean = re.sub(r'```json\s*|\s*```', '', raw_text, flags=re.DOTALL).strip()
-        return json.loads(clean)
+        response = requests.post(url, headers=headers, json=payload, timeout=120)
+        if response.status_code == 200:
+            data = response.json()
+            return data["candidates"][0]["content"]["parts"][0]["text"]
+        else:
+            return f"API-Fehler: {response.status_code} - {response.text}"
     except Exception as e:
-        # Zweiter Versuch: Suche nach der ersten { und letzten }
+        return f"Verbindungsfehler: {str(e)}"
+
+def extract_json(text: str):
+    """Hilfsfunktion, um JSON aus dem KI-Text zu isolieren."""
+    try:
+        # Sucht nach Inhalten zwischen ```json und ```
+        match = re.search(r'```json\s*(.*?)\s*```', text, re.DOTALL)
+        if match:
+            return json.loads(match.group(1))
+        # Falls keine Backticks da sind, versuche das ganze Dokument
+        return json.loads(text.strip())
+    except:
+        # Letzter Versuch: Suche nach den äußersten geschweiften Klammern
         try:
-            start = raw_text.find('{')
-            end = raw_text.rfind('}') + 1
-            return json.loads(raw_text[start:end])
+            start = text.find('{')
+            end = text.rfind('}') + 1
+            return json.loads(text[start:end])
         except:
-            raise Exception(f"JSON-Fehler: {str(e)} | Roh-Text: {raw_text[:100]}")
+            return None
 
 def call_semantic_scholar(query: str):
+    """Suche bei Semantic Scholar (Tag 9)."""
     endpoint = "https://api.semanticscholar.org/graph/v1/paper/search"
     headers = {"x-api-key": S2_API_KEY}
     params = {"query": query, "limit": 3, "fields": "title,year,abstract"}
@@ -99,71 +90,74 @@ def process_pdf():
         "Analysiere dieses PDF einer Masterarbeit. Extrahiere folgende Teile und gib sie als JSON zurück:\n"
         "1. 'toc': Das Inhaltsverzeichnis.\n"
         "2. 'bibliography': Das Literaturverzeichnis.\n"
-        "3. 'draft_text': Ein langer Ausschnitt des Hauptteils.\n\n"
+        "3. 'draft_text': Ein langer Ausschnitt des Hauptteils (Einleitung bis Methoden).\n\n"
         "Antworte NUR im JSON-Format: {'toc': '...', 'bibliography': '...', 'draft_text': '...'}"
     )
 
-    try:
-        raw_res = call_gemini_smart(prompt, pdf_data=pdf_bytes, is_json=True)
-        data = clean_json_response(raw_res)
+    raw_res = call_gemini(prompt, pdf_data=pdf_bytes)
+    data = extract_json(raw_res)
+    
+    if data:
         return jsonify(data), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    else:
+        return jsonify({"error": f"KI-Antwort konnte nicht als JSON gelesen werden: {raw_res[:200]}"}), 500
 
 @app.route('/initialize', methods=['POST'])
 def initialize_work():
-    try:
-        data = request.json
-        toc, bib, draft = data.get('toc',''), data.get('bibliography',''), data.get('draft_text','')
+    data = request.json
+    toc = data.get('toc', '')
+    bib = data.get('bibliography', '')
+    draft = data.get('draft_text', '')
 
-        prompt = (
-            f"Prüfe dieses Literaturverzeichnis auf Korrektheit. Gib JSON zurück.\n"
-            f"Format: {{'entries': [{{'status': 'OK/FLAG', 'id': 1, 'text': '...', 'reason': '...'}}]}}\n\n"
-            f"Quellen:\n{bib}"
-        )
-        raw_bib = call_gemini_smart(prompt, is_json=True)
-        bib_data = clean_json_response(raw_bib)
+    # Literatur-Check
+    prompt_bib = (
+        "Überprüfe dieses Literaturverzeichnis auf Korrektheit. Antworte als JSON-Liste.\n"
+        "Format: {'entries': [{'status': 'OK/FLAG', 'id': 1, 'text': '...', 'reason': '...'}]}\n\n"
+        f"Quellen:\n{bib}"
+    )
+    res_bib = call_gemini(prompt_bib)
+    bib_data = extract_json(res_bib)
 
-        struct_prompt = f"Analysiere kurz die wissenschaftliche Struktur:\nInhalt: {toc}\nText: {draft}"
-        analysis = call_gemini_smart(struct_prompt)
+    # Struktur-Analyse
+    prompt_struct = f"Analysiere kurz die wissenschaftliche Struktur:\nInhalt: {toc}\nText: {draft}"
+    analysis = call_gemini(prompt_struct)
 
-        return jsonify({
-            "status": "success",
-            "bibliography_check": bib_data.get('entries', []),
-            "structural_analysis": analysis,
-            "full_context": f"STRUKTUR:\n{analysis}\n\nLITERATUR:\n{bib}"
-        }), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    return jsonify({
+        "status": "success",
+        "bibliography_check": bib_data.get('entries', []) if bib_data else [],
+        "structural_analysis": analysis,
+        "full_context": f"STRUKTUR:\n{analysis}\n\nLITERATUR:\n{bib}"
+    }), 200
 
 @app.route('/evaluate', methods=['POST'])
 def evaluate():
-    try:
-        data = request.json
-        paragraph = data.get('paragraph', '')
-        
-        # RAG Suche
-        kw_res = call_gemini_smart(f"Extrahiere 3 medizinische Suchbegriffe für: {paragraph}")
-        evidence = call_semantic_scholar(kw_res)
-        evidence_text = "\n".join([f"- {p['title']} ({p['year']}): {p.get('abstract','')[:200]}" for p in evidence])
+    data = request.json
+    paragraph = data.get('paragraph', '')
+    context = data.get('context_summary', '')
 
-        # Agenten
-        res_a = call_gemini_smart(f"Akademisches Lektorat (Stil, Logik): {paragraph}")
-        res_b = call_gemini_smart(f"Fachprüfung. Evidenz:\n{evidence_text}\n\nText:\n{paragraph}")
+    # RAG Suche
+    kw_res = call_gemini(f"Extrahiere 3 medizinische Suchbegriffe für: {paragraph}")
+    evidence = call_semantic_scholar(kw_res)
+    evidence_text = "\n".join([f"- {p['title']} ({p['year']}): {p.get('abstract','')[:200]}" for p in evidence])
 
-        prompt_c = (
-            f"Erstelle ein finales Gutachten als JSON.\n"
-            f"Lektorat: {res_a}\nFachprüfung: {res_b}\nOriginal: {paragraph}\n\n"
-            "Format: {\"gesamtnote_tendenz\": \"...\", \"kritikpunkte\": [{\"kategorie\": \"...\", \"original_zitat\": \"...\", \"kritikpunkt\": \"...\", \"evidenz_nachweis\": \"...\"}], \"ueberarbeiteter_absatz\": \"...\"}\n"
-            "WICHTIG: Sprache des Originals beibehalten!"
-        )
-        
-        raw_eval = call_gemini_smart(prompt_c, is_json=True)
-        eval_data = clean_json_response(raw_eval)
+    # Agenten
+    res_a = call_gemini(f"Akademisches Lektorat (Stil, Logik): {paragraph}")
+    res_b = call_gemini(f"Fachprüfung. Evidenz:\n{evidence_text}\n\nText:\n{paragraph}")
 
+    prompt_c = (
+        f"Erstelle ein finales Gutachten als JSON.\n"
+        f"Lektorat: {res_a}\nFachprüfung: {res_b}\nOriginal: {paragraph}\n\n"
+        "Format: {\"gesamtnote_tendenz\": \"...\", \"kritikpunkte\": [{\"kategorie\": \"...\", \"original_zitat\": \"...\", \"kritikpunkt\": \"...\"}], \"ueberarbeiteter_absatz\": \"...\"}\n"
+        "WICHTIG: Sprache des Originals beibehalten!"
+    )
+    
+    raw_eval = call_gemini(prompt_c)
+    eval_data = extract_json(raw_eval)
+
+    if eval_data:
         return jsonify(eval_data), 200
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    else:
+        return jsonify({"error": "Gutachten-JSON konnte nicht erstellt werden."}), 500
 
 if __name__ == '__main__':
     app.run(debug=True)
