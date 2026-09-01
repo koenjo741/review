@@ -101,12 +101,13 @@ def process_pdf():
     pdf_bytes = file.read()
 
     prompt = (
-        "Du bist ein wissenschaftlicher Assistent. Analysiere das beigefügte PDF einer Masterarbeit.\n"
-        "Extrahiere folgende Bereiche und gib sie als JSON zurück:\n"
-        "1. 'toc': Das Inhaltsverzeichnis.\n"
-        "2. 'bibliography': Das Literaturverzeichnis.\n"
-        "3. 'draft_text': Ein aussagekräftiger Ausschnitt des Hauptteils.\n"
-        "Nutze exakt dieses JSON-Schema: " + json.dumps(PDFExtraction.model_json_schema())
+    "Du bist ein erfahrener wissenschaftlicher Lektor. Analysiere das beigefügte PDF einer Masterarbeit.\n"
+    "Identifiziere die funktionalen Abschnitte, auch wenn sie untypisch benannt sind (z.B. 'Outline' statt 'TOC' oder 'References' statt 'Bibliography').\n"
+    "Extrahiere folgende Bereiche und gib sie als JSON zurück:\n"
+    "1. 'toc': Das vollständige Inhaltsverzeichnis.\n"
+    "2. 'bibliography': Das gesamte Literaturverzeichnis.\n"
+    "3. 'draft_text': Den eigentlichen Fließtext der Arbeit (von der Einleitung bis zum Fazit).\n"
+    "Nutze exakt dieses JSON-Schema: " + json.dumps(PDFExtraction.model_json_schema())
     )
 
     try:
