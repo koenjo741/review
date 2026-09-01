@@ -19,13 +19,12 @@
         .comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
         .col { padding: 20px; border-radius: 8px; border: 1px solid #ddd; background: #fff; line-height: 1.6; }
         .badge { background: #e9ecef; padding: 4px 8px; border-radius: 4px; font-size: 11px; font-weight: bold; text-transform: uppercase; color: #495057; display: inline-block; margin-bottom: 5px; }
-        .error-msg { color: #721c24; background: #f8d7da; padding: 10px; border-radius: 4px; margin-top: 10px; border: 1px solid #f5c6cb; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Master-Thesis Evaluator <small style="font-size: 0.5em; opacity: 0.6;">v2.1 (SDK-Powered)</small></h1>
+    <h1>Master-Thesis Evaluator <small style="font-size: 0.5em; opacity: 0.6;">v2.2 (Stable REST)</small></h1>
 
     <div class="upload-zone">
         <h3>Phase 0: PDF-Upload</h3>
@@ -84,9 +83,9 @@
             
             if (!response.ok) throw new Error(data.error || "Fehler bei der PDF-Analyse");
 
-            document.getElementById('toc').value = data.toc;
-            document.getElementById('bibliography').value = data.bibliography;
-            document.getElementById('draft_text').value = data.draft_text;
+            document.getElementById('toc').value = data.toc || "";
+            document.getElementById('bibliography').value = data.bibliography || "";
+            document.getElementById('draft_text').value = data.draft_text || "";
             
             btn.innerText = "✓ PDF erfolgreich gelesen";
             btn.style.background = "#28a745";
