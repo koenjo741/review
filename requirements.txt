@@ -3,3 +3,4 @@ google-genai
 biopython
 pydantic
 gunicorn
+PyMuPDF
