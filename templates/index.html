@@ -2,27 +2,30 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Master-Thesis Evaluator Pro v3.0</title>
+    <title>Master-Thesis Evaluator v3.1</title>
     <style>
         body { font-family: 'Segoe UI', sans-serif; background: #f4f7f6; padding: 20px; }
         .container { max-width: 1000px; margin: auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); }
-        .upload-zone { background: #eef2f7; border: 2px dashed #003366; text-align: center; padding: 30px; border-radius: 8px; }
-        textarea { width: 100%; height: 120px; padding: 10px; border-radius: 4px; border: 1px solid #ccc; margin-top: 5px; }
+        .upload-zone { background: #eef2f7; border: 2px dashed #003366; text-align: center; padding: 30px; border-radius: 8px; margin-bottom: 20px; }
+        textarea { width: 100%; height: 120px; padding: 10px; border-radius: 4px; border: 1px solid #ccc; box-sizing: border-box; margin-top: 5px; }
         button { background: #003366; color: white; border: none; padding: 12px 25px; border-radius: 5px; cursor: pointer; font-weight: bold; }
-        #progress-log { margin-top: 10px; color: #003366; font-weight: bold; display: none; }
+        #status-box { background: #e6f4ea; padding: 15px; border-radius: 8px; display: none; margin-top: 20px; }
+        .scrollable { max-height: 200px; overflow-y: auto; background: white; padding: 10px; border: 1px solid #ddd; margin-top: 5px; font-family: monospace; font-size: 12px; }
+        .comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 20px; }
+        .col { padding: 15px; border-radius: 8px; border: 1px solid #ddd; background: #fff; line-height: 1.6; }
     </style>
 </head>
 <body>
 
 <div class="container">
-    <h1>Master-Thesis Evaluator <small>v3.0 (Hybrid-Parsing)</small></h1>
+    <h1>Master-Thesis Evaluator <small>v3.1 (Direct REST)</small></h1>
 
     <div class="upload-zone">
-        <h3>PDF-Upload & Intelligente Segmentierung</h3>
+        <h3>PDF-Upload & Analyse</h3>
         <input type="file" id="pdf-file" accept="application/pdf">
         <br><br>
         <button onclick="uploadPDF()" id="upload-btn">Arbeit analysieren</button>
-        <div id="progress-log">KI analysiert Teilstücke (TOC, Bib, Intro)... Bitte warten.</div>
+        <p id="loading-msg" style="display:none; color:#003366; font-weight:bold;">KI liest Teilstücke... Bitte warten.</p>
     </div>
 
     <div class="section">
@@ -36,51 +39,106 @@
         <button onclick="initializeWork()" id="init-btn" style="margin-top:10px;">Daten validieren</button>
     </div>
 
+    <div id="status-box">
+        <strong>✓ Literatur-Check:</strong>
+        <div id="bib-content" class="scrollable"></div>
+        <br>
+        <strong>✓ Struktur-Analyse:</strong>
+        <div id="struct-content" style="white-space: pre-wrap;"></div>
+    </div>
+
+    <div class="section" id="eval-section" style="opacity:0.3; pointer-events:none;">
+        <h3>Absatz-Lektorat</h3>
+        <textarea id="paragraph" placeholder="Absatz hier einfügen..."></textarea>
+        <button onclick="evaluateParagraph()" id="eval-btn" style="margin-top:10px;">Prüfung starten</button>
+    </div>
+
     <div id="result-container"></div>
 </div>
 
 <script>
+    let globalContext = "";
+
     async function uploadPDF() {
         const fileInput = document.getElementById('pdf-file');
         const btn = document.getElementById('upload-btn');
-        const log = document.getElementById('progress-log');
-        
+        const msg = document.getElementById('loading-msg');
         if(!fileInput.files[0]) return alert("Bitte PDF wählen.");
 
         btn.disabled = true;
-        log.style.display = "block";
+        msg.style.display = "block";
 
         const formData = new FormData();
         formData.append('file', fileInput.files[0]);
 
         try {
-            // Timeout auf 5 Minuten erhöhen für große PDFs
-            const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 300000);
-
-            const response = await fetch('/process_pdf', { 
-                method: 'POST', 
-                body: formData,
-                signal: controller.signal 
-            });
+            const response = await fetch('/process_pdf', { method: 'POST', body: formData });
             const data = await response.json();
             
             document.getElementById('toc').value = data.toc;
             document.getElementById('bibliography').value = data.bibliography;
             document.getElementById('draft_text').value = data.draft_text;
             
-            log.innerText = "✓ Analyse abgeschlossen!";
+            btn.innerText = "✓ PDF extrahiert";
             btn.style.background = "#28a745";
         } catch (e) {
             alert("Fehler: " + e.message);
-            btn.style.background = "#dc3545";
         } finally {
             btn.disabled = false;
+            msg.style.display = "none";
         }
     }
 
     async function initializeWork() {
-        // ... (bestehende Logik)
+        const btn = document.getElementById('init-btn');
+        const payload = {
+            toc: document.getElementById('toc').value,
+            bibliography: document.getElementById('bibliography').value,
+            draft_text: document.getElementById('draft_text').value
+        };
+
+        try {
+            const response = await fetch('/initialize', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(payload)
+            });
+            const data = await response.json();
+            globalContext = data.full_context;
+            
+            let bibHtml = data.bibliography_check.map(e => `<div>[${e.status}] ${e.id}: ${e.text.substring(0,60)}...</div>`).join('');
+            document.getElementById('bib-content').innerHTML = bibHtml;
+            document.getElementById('struct-content').innerText = data.structural_analysis;
+            document.getElementById('status-box').style.display = 'block';
+            document.getElementById('eval-section').style.opacity = '1';
+            document.getElementById('eval-section').style.pointerEvents = 'auto';
+            btn.innerText = "✓ Initialisiert";
+        } catch (e) {
+            alert("Fehler: " + e.message);
+        }
+    }
+
+    async function evaluateParagraph() {
+        const btn = document.getElementById('eval-btn');
+        const para = document.getElementById('paragraph').value;
+        try {
+            const response = await fetch('/evaluate', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ paragraph: para, context_summary: globalContext })
+            });
+            const data = await response.json();
+            let html = `<div class="col" style="background:white; border: 1px solid #003366; margin-top:20px; padding:20px; border-radius:8px;">
+                <h3>Gutachten (Tendenz: ${data.gesamtnote_tendenz})</h3>
+                <div class="comparison-grid">
+                    <div class="col"><b>Original:</b><br>${para}</div>
+                    <div class="col" style="background:#f0f7ff;"><b>Vorschlag:</b><br>${data.ueberarbeiteter_absatz}</div>
+                </div>
+            </div>`;
+            document.getElementById('result-container').innerHTML = html;
+        } catch (e) {
+            alert("Fehler: " + e.message);
+        }
     }
 </script>
 </body>
