@@ -2,7 +2,8 @@ from flask import Flask, render_template, request, jsonify
 import requests
 import os
 import json
-import base64
+from google import genai
+from google.genai import types
 from pydantic import BaseModel, Field
 from typing import List, Optional
 
@@ -12,8 +13,10 @@ app = Flask(__name__)
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 S2_API_KEY = os.environ.get("S2_API_KEY", "s2k-an3iWCohGVLwGyOWdzffZ9orI2E1ySNnp76Ojljo")
 
-# --- PYDANTIC MODELS ---
+# Initialisierung des offiziellen Google AI SDKs
+client = genai.Client(api_key=GOOGLE_API_KEY)
 
+# --- PYDANTIC MODELS ---
 class BibEntry(BaseModel):
     status: str
     id: int
@@ -39,41 +42,37 @@ class PDFExtraction(BaseModel):
     bibliography: str
     draft_text: str
 
-# --- CORE API FUNCTION ---
-
+# --- CORE API FUNCTION (SDK VERSION) ---
 def call_gemini(prompt: str, is_json: bool = False, pdf_data: bytes = None) -> str:
-    # v1beta ist oft stabiler für die neuesten Multimodal-Features (PDF)
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GOOGLE_API_KEY}"
-    headers = {"Content-Type": "application/json"}
-    
-    parts = [{"text": prompt}]
-    if pdf_data:
-        parts.append({
-            "inline_data": {
-                "mime_type": "application/pdf",
-                "data": base64.b64encode(pdf_data).decode('utf-8')
-            }
-        })
-
-    payload = {
-        "contents": [{"parts": parts}],
-        "generationConfig": {
-            "response_mime_type": "application/json" if is_json else "text/plain",
-            "temperature": 0.1
-        }
-    }
-
+    """Nutzt das google-genai SDK für maximale Stabilität (Tag 21)."""
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=120)
-        if response.status_code == 200:
-            return response.json()["candidates"][0]["content"]["parts"][0]["text"]
-        else:
-            # Wir werfen hier einen Fehler, damit die Route ihn sauber fangen kann
-            raise Exception(f"Google API Fehler {response.status_code}: {response.text}")
+        contents = []
+        if pdf_data:
+            # Tag 8: PDF als Byte-Part hinzufügen
+            contents.append(types.Part.from_bytes(data=pdf_data, mime_type='application/pdf'))
+        
+        contents.append(prompt)
+
+        config = types.GenerateContentConfig(
+            temperature=0.1,
+            response_mime_type='application/json' if is_json else 'text/plain'
+        )
+
+        response = client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=contents,
+            config=config
+        )
+        
+        if not response.text:
+            raise Exception("KI hat keine Antwort generiert.")
+            
+        return response.text
     except Exception as e:
-        raise Exception(f"Verbindungsfehler: {str(e)}")
+        raise Exception(f"Gemini SDK Fehler: {str(e)}")
 
 def call_semantic_scholar(query: str):
+    """Tag 9: RAG - Suche bei Semantic Scholar."""
     endpoint = "https://api.semanticscholar.org/graph/v1/paper/search"
     headers = {"x-api-key": S2_API_KEY}
     params = {"query": query, "limit": 3, "fields": "title,year,abstract"}
@@ -84,7 +83,6 @@ def call_semantic_scholar(query: str):
         return []
 
 # --- ROUTES ---
-
 @app.route('/')
 def index():
     return render_template('index.html')
@@ -98,12 +96,11 @@ def process_pdf():
     pdf_bytes = file.read()
 
     prompt = (
-        "Du bist ein wissenschaftlicher Lektor. Analysiere das PDF dieser Masterarbeit.\n"
-        "Extrahiere die folgenden Bereiche funktional (auch wenn sie anders benannt sind, z.B. 'Outline' statt 'TOC'):\n"
+        "Analysiere das PDF dieser Masterarbeit. Extrahiere folgende Bereiche:\n"
         "1. 'toc': Das Inhaltsverzeichnis.\n"
         "2. 'bibliography': Das Literaturverzeichnis.\n"
-        "3. 'draft_text': Ein langer Ausschnitt des Hauptteils.\n"
-        "Gib das Ergebnis STRENG als JSON zurück. Schema: " + json.dumps(PDFExtraction.model_json_schema())
+        "3. 'draft_text': Den Hauptteil der Arbeit.\n"
+        "Gib das Ergebnis als JSON zurück. Schema: " + json.dumps(PDFExtraction.model_json_schema())
     )
 
     try:
@@ -111,7 +108,6 @@ def process_pdf():
         data = PDFExtraction.model_validate_json(raw_res)
         return jsonify(data.model_dump()), 200
     except Exception as e:
-        print(f"DEBUG ERROR: {str(e)}") # Sichtbar in Render Logs
         return jsonify({"error": str(e)}), 500
 
 @app.route('/initialize', methods=['POST'])
@@ -123,13 +119,13 @@ def initialize_work():
         draft = data.get('draft_text', '')
 
         parsing_prompt = (
-            f"Prüfe dieses Literaturverzeichnis auf Korrektheit. Gib eine JSON-Liste zurück.\n"
+            f"Prüfe dieses Literaturverzeichnis auf Korrektheit. Gib JSON zurück.\n"
             f"Schema: {json.dumps(BibList.model_json_schema())}\n\nQuellen:\n{bib}"
         )
         raw_bib = call_gemini(parsing_prompt, is_json=True)
         bib_data = BibList.model_validate_json(raw_bib)
 
-        struct_prompt = f"Analysiere die wissenschaftliche Struktur & Stringenz:\nInhalt: {toc}\nText: {draft}"
+        struct_prompt = f"Analysiere Struktur & Stringenz:\nInhalt: {toc}\nText: {draft}"
         analysis = call_gemini(struct_prompt)
 
         return jsonify({
