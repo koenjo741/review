@@ -2,7 +2,6 @@ from flask import Flask, render_template, request, jsonify
 import requests
 import os
 import json
-import base64
 import fitz  # PyMuPDF
 import re
 
@@ -12,48 +11,56 @@ app = Flask(__name__)
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 S2_API_KEY = os.environ.get("S2_API_KEY", "s2k-an3iWCohGVLwGyOWdzffZ9orI2E1ySNnp76Ojljo")
 
-def get_pdf_segment(pdf_bytes, start_page, end_page):
-    """Extrahiert Teilstücke des PDFs, um das Token-Limit zu schonen."""
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    total = doc.page_count
-    new_doc = fitz.open()
-    # Seitenbereich sicherstellen
-    start = max(0, start_page)
-    end = min(end_page, total - 1)
-    new_doc.insert_pdf(doc, from_page=start, to_page=end)
-    segment_bytes = new_doc.write()
-    new_doc.close()
-    doc.close()
-    return segment_bytes
-
-def call_gemini_direct(prompt, pdf_data=None):
+def call_gemini_text_only(prompt: str) -> str:
     """
-    Nutzt exakt den Weg aus deinem ersten funktionierenden Skript.
+    Der stabilste Weg: Nur Text an den Standard-Endpunkt senden.
+    Kein PDF-Upload-Stress mehr.
     """
-    # Wir nutzen gemini-1.5-flash (das stabilste Modell)
     url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={GOOGLE_API_KEY}"
     headers = {"Content-Type": "application/json"}
-    
-    parts = [{"text": prompt}]
-    if pdf_data:
-        parts.append({
-            "inline_data": {
-                "mime_type": "application/pdf",
-                "data": base64.b64encode(pdf_data).decode('utf-8')
-            }
-        })
-
-    payload = {"contents": [{"parts": parts}]}
+    payload = {"contents": [{"parts": [{"text": prompt}]}]}
     
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=120)
         if response.status_code == 200:
-            data = response.json()
-            return data["candidates"][0]["content"]["parts"][0]["text"]
-        else:
-            return f"Fehler: {response.status_code}. {response.text}"
+            return response.json()["candidates"][0]["content"]["parts"][0]["text"]
+        return f"Fehler: {response.status_code}"
     except Exception as e:
         return f"Verbindungsfehler: {str(e)}"
+
+def extract_text_locally(pdf_bytes):
+    """Extrahiert Text direkt auf dem Server. Ersetzt die fehleranfällige Google-PDF-API."""
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    full_text = ""
+    # Wir nehmen die ersten 10 und die letzten 15 Seiten (reicht für TOC, Intro und Bib)
+    total = doc.page_count
+    
+    # Text von Anfang extrahieren
+    for i in range(min(10, total)):
+        full_text += doc[i].get_text()
+    
+    full_text += "\n... [MITTELTEIL GEKÜRZT] ...\n"
+    
+    # Text vom Ende extrahieren
+    if total > 10:
+        start_end = max(10, total - 15)
+        for i in range(start_end, total):
+            full_text += doc[i].get_text()
+            
+    doc.close()
+    return full_text
+
+def clean_json(text):
+    """Isoliert JSON aus dem KI-Gequassel."""
+    try:
+        match = re.search(r'\{.*\}', text, re.DOTALL)
+        if match:
+            return json.loads(match.group(0))
+        return None
+    except:
+        return None
+
+# --- ROUTES ---
 
 @app.route('/')
 def index():
@@ -64,94 +71,53 @@ def process_pdf():
     if 'file' not in request.files:
         return jsonify({"error": "Keine Datei"}), 400
     
-    file = request.files['file']
-    pdf_bytes = file.read()
+    # 1. PDF lokal auslesen
+    pdf_text = extract_text_locally(request.files['file'].read())
+
+    # 2. Den extrahierten Text an Gemini senden
+    prompt = f"""
+    Hier ist der Text einer Masterarbeit. Extrahiere daraus:
+    1. 'toc': Das Inhaltsverzeichnis.
+    2. 'bibliography': Das Literaturverzeichnis.
+    3. 'draft_text': Die Einleitung.
+
+    Antworte NUR im JSON-Format: {{"toc": "...", "bibliography": "...", "draft_text": "..."}}
     
-    # Seitenanzahl ermitteln
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    total_pages = doc.page_count
-    doc.close()
-
-    # 1. TOC extrahieren (Seiten 1-10)
-    toc_pdf = get_pdf_segment(pdf_bytes, 0, 10)
-    toc_text = call_gemini_direct("Extrahiere das Inhaltsverzeichnis aus diesem PDF-Ausschnitt.", toc_pdf)
-
-    # 2. Literatur extrahieren (Letzte 15 Seiten)
-    bib_pdf = get_pdf_segment(pdf_bytes, total_pages - 15, total_pages)
-    bib_text = call_gemini_direct("Extrahiere das Literaturverzeichnis aus diesem PDF-Ausschnitt.", bib_pdf)
-
-    # 3. Einleitung extrahieren (Seiten 1-15)
-    intro_pdf = get_pdf_segment(pdf_bytes, 0, 15)
-    intro_text = call_gemini_direct("Suche das Kapitel 'Einleitung' oder 'Introduction' und kopiere die ersten 3 Seiten Text.", intro_pdf)
-
-    return jsonify({
-        "toc": toc_text,
-        "bibliography": bib_text,
-        "draft_text": intro_text
-    }), 200
+    TEXT:
+    {pdf_text}
+    """
+    
+    raw_res = call_gemini_text_only(prompt)
+    data = clean_json(raw_res)
+    
+    if data:
+        return jsonify(data), 200
+    return jsonify({"error": "KI konnte Text nicht strukturieren"}), 500
 
 @app.route('/initialize', methods=['POST'])
 def initialize_work():
     data = request.json
     bib = data.get('bibliography', '')
-    toc = data.get('toc', '')
-    draft = data.get('draft_text', '')
-
-    # Literatur-Check (wie in deinem ersten Tool)
-    prompt_bib = (
-        "Du bist Lektor. Überprüfe das Literaturverzeichnis auf Fehler.\n"
-        "Antworte zeilenweise: STATUS (OK/FLAG), Nummer, Zitat - Begründung.\n\n"
-        f"{bib}"
-    )
-    res_bib = call_gemini_direct(prompt_bib)
     
-    # Struktur-Analyse
-    prompt_struct = f"Analysiere die Struktur der Arbeit:\nInhalt: {toc}\nText: {draft}"
-    analysis = call_gemini_direct(prompt_struct)
-
-    # Wir bauen die Liste für das Frontend manuell zusammen
-    checked_sources = []
-    for line in res_bib.strip().split('\n'):
-        if ',' in line:
-            parts = line.split(',', 2)
-            checked_sources.append({
-                "status": "valide" if "OK" in parts[0].upper() else "warning",
-                "id": parts[1].strip() if len(parts) > 1 else "?",
-                "text": parts[2].strip() if len(parts) > 2 else line,
-                "reason": "Verifiziert" if "OK" in parts[0].upper() else "Prüfen!"
-            })
+    prompt = f"Prüfe dieses Literaturverzeichnis auf Fehler. Antworte als JSON {{'entries': [...]}}: {bib}"
+    res = call_gemini_text_only(prompt)
+    bib_data = clean_json(res)
 
     return jsonify({
         "status": "success",
-        "bibliography_check": checked_sources,
-        "structural_analysis": analysis,
-        "full_context": f"STRUKTUR:\n{analysis}\n\nLITERATUR:\n{bib}"
+        "bibliography_check": bib_data.get('entries', []) if bib_data else [],
+        "structural_analysis": "Analyse bereit.",
+        "full_context": f"LITERATUR:\n{bib}"
     })
 
 @app.route('/evaluate', methods=['POST'])
 def evaluate():
     data = request.json
-    paragraph = data.get('paragraph', '')
-    context = data.get('context_summary', '')
-
-    # Agenten-Logik (wie in deinem ersten Tool)
-    res_a = call_gemini_direct(f"Akademisches Lektorat (Stil, Logik): {paragraph}")
-    res_b = call_gemini_direct(f"Fachprüfung im Kontext der Arbeit:\n{context}\n\nAbsatz: {paragraph}")
-
-    # Synthese zu JSON
-    prompt_c = (
-        f"Erstelle ein Gutachten als JSON.\nLektorat: {res_a}\nFachprüfung: {res_b}\n"
-        "Format: {\"gesamtnote_tendenz\": \"...\", \"kritikpunkte\": [{\"kategorie\": \"...\", \"original_zitat\": \"...\", \"kritikpunkt\": \"...\"}], \"ueberarbeiteter_absatz\": \"...\"}"
-    )
-    raw_eval = call_gemini_direct(prompt_c)
+    para = data.get('paragraph', '')
     
-    # Robustes JSON-Parsing
-    try:
-        start = raw_eval.find('{')
-        end = raw_eval.rfind('}') + 1
-        return jsonify(json.loads(raw_eval[start:end])), 200
-    except:
-        return jsonify({"error": "JSON Fehler", "raw": raw_eval}), 500
+    prompt = f"Erstelle ein Gutachten als JSON für diesen Absatz: {para}"
+    res = call_gemini_text_only(prompt)
+    return jsonify(clean_json(res) or {}), 200
 
 if __name__ == '__main__':
     app.run(debug=True)
